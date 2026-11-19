@@ -39,9 +39,9 @@ const Register = () => {
     setErrors({})
     setLoading(true)
     try {
-      await authAPI.register({ name: form.name.trim(), email: form.email, password: form.password })
-      toast.success('Verification code dispatched to your email')
-      navigate('/verify-otp', { state: { email: form.email } })
+      const res = await authAPI.register({ name: form.name.trim(), email: form.email, password: form.password })
+      toast.success(res.data?.message || 'Verification code dispatched')
+      navigate('/verify-otp', { state: { email: form.email, devOtp: res.data?.devOtp } })
     } catch (err) {
       toast.error(err.response?.data?.message || 'Registration failed')
     } finally { setLoading(false) }

@@ -7,6 +7,7 @@ const VerifyOtp = () => {
   const navigate = useNavigate()
   const { state } = useLocation()
   const email  = state?.email || ''
+  const devOtp = state?.devOtp || ''
   const [otp, setOtp]         = useState(['', '', '', '', '', ''])
   const [timer, setTimer]     = useState(600)
   const [loading, setLoading] = useState(false)
@@ -15,7 +16,11 @@ const VerifyOtp = () => {
 
   useEffect(() => {
     if (!email) { navigate('/register'); return }
-    inputs.current[0]?.focus()
+    if (devOtp && devOtp.length === 6) {
+      setOtp(devOtp.split(''))
+    } else {
+      inputs.current[0]?.focus()
+    }
     const id = setInterval(() => setTimer(t => t > 0 ? t - 1 : 0), 1000)
     return () => clearInterval(id)
   }, [])
@@ -56,10 +61,16 @@ const VerifyOtp = () => {
   const handleResend = async () => {
     setRe(true)
     try {
-      await authAPI.resendOtp(email)
-      setTimer(600); setOtp(['', '', '', '', '', ''])
-      toast.success('A new code has been sent.')
-      inputs.current[0]?.focus()
+      const res = await authAPI.resendOtp(email)
+      setTimer(600)
+      if (res.data?.devOtp) {
+        setOtp(res.data.devOtp.split(''))
+        toast.success(`New code: ${res.data.devOtp}`)
+      } else {
+        setOtp(['', '', '', '', '', ''])
+        toast.success('A new code has been sent.')
+        inputs.current[0]?.focus()
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to resend code')
     } finally { setRe(false) }

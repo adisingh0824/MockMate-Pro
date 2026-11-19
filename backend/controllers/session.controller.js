@@ -180,11 +180,19 @@ exports.submitSession = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Session not found' });
     }
 
-    const answerMap = new Map(
-      Array.isArray(answers)
-        ? answers.map((item) => [String(item.questionId), item.userAnswer])
-        : []
-    );
+    const answerMap = new Map();
+    if (Array.isArray(answers)) {
+      answers.forEach((item) => {
+        if (item && (item.questionId || item.id || item._id)) {
+          const qId = item.questionId || item.id || item._id;
+          answerMap.set(String(qId), item.userAnswer || '');
+        }
+      });
+    } else if (answers && typeof answers === 'object') {
+      Object.entries(answers).forEach(([key, val]) => {
+        answerMap.set(String(key), typeof val === 'object' ? val?.userAnswer || '' : String(val));
+      });
+    }
 
     let correctCount = 0;
 

@@ -19,8 +19,9 @@ const ForgotPassword = () => {
     }
     try {
       setLoading(true)
-      await authAPI.forgotPassword(email)
-      toast.success('Reset code sent to your email')
+      const res = await authAPI.forgotPassword(email)
+      toast.success(res.data?.message || 'Reset code sent to your email')
+      if (res.data?.devOtp) setOtp(res.data.devOtp)
       setStep(2)
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to send reset code')

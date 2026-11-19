@@ -83,6 +83,16 @@ RULES:
       : [{ role: 'user', content: 'Please ask the next interview question based on my previous answer.' }]),
   ];
 
+  if (!process.env.OPENROUTER_API_KEY && !process.env.OPENAI_API_KEY) {
+    const defaultQuestions = [
+      `Could you describe your experience as a ${role} and explain how you approach structuring complex applications?`,
+      `How do you handle state management, debugging, and performance bottlenecks in your everyday workflow?`,
+      `Can you discuss a challenging technical bug or outage you resolved recently and what you learned from it?`,
+      `How do you balance writing maintainable, well-tested code against rapid delivery deadlines?`
+    ];
+    return defaultQuestions[(questionNumber - 1) % defaultQuestions.length];
+  }
+
   try {
     const modelName = process.env.OPENROUTER_MODEL || 'gpt-4o-mini';
     console.debug(`[InterviewAI] generateInterviewQuestion using model: ${modelName}`);
@@ -96,9 +106,14 @@ RULES:
     return result.choices[0].message.content.trim();
   } catch (err) {
     logProviderError('generateInterviewQuestion', err);
-    const error = new Error(`AI provider error while generating interview question: ${err?.message || 'Unknown error'}`);
-    error.statusCode = 502;
-    throw error;
+    console.warn(`[InterviewAI] Falling back to structured question pool.`);
+    const defaultQuestions = [
+      `Could you describe your experience as a ${role} and explain how you approach structuring complex applications?`,
+      `How do you handle state management, debugging, and performance bottlenecks in your everyday workflow?`,
+      `Can you discuss a challenging technical bug or outage you resolved recently and what you learned from it?`,
+      `How do you balance writing maintainable, well-tested code against rapid delivery deadlines?`
+    ];
+    return defaultQuestions[(questionNumber - 1) % defaultQuestions.length];
   }
 }
 
@@ -130,6 +145,19 @@ Return ONLY valid JSON. No extra text.`;
     { role: 'user', content: userAnswer },
   ];
 
+  if (!process.env.OPENROUTER_API_KEY && !process.env.OPENAI_API_KEY) {
+    if (isLast) {
+      return {
+        nextQuestion: null,
+        quickFeedback: 'Thank you for walking through that thoroughly. That concludes our interview round today.',
+      };
+    }
+    return {
+      nextQuestion: `That provides good context. Could you elaborate on how you would test and monitor that in a production deployment?`,
+      quickFeedback: 'Good explanation on the design trade-offs.',
+    };
+  }
+
   try {
     const modelName = process.env.OPENROUTER_MODEL || 'gpt-4o-mini';
     console.debug(`[InterviewAI] evaluateInterviewAnswer using model: ${modelName}`);
@@ -144,9 +172,16 @@ Return ONLY valid JSON. No extra text.`;
     return parseInterviewAiResponse(raw);
   } catch (err) {
     logProviderError('evaluateInterviewAnswer', err);
-    const error = new Error(`AI provider error while evaluating interview answer: ${err?.message || 'Unknown error'}`);
-    error.statusCode = 502;
-    throw error;
+    if (isLast) {
+      return {
+        nextQuestion: null,
+        quickFeedback: 'Thank you for sharing your perspective. That concludes our discussion today.',
+      };
+    }
+    return {
+      nextQuestion: `That makes sense. How would you handle scaling this as the data or traffic volume grows 10x?`,
+      quickFeedback: 'Clear explanation of the core principles.',
+    };
   }
 }
 

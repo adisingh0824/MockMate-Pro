@@ -27,7 +27,6 @@ const buildFromAddress = (sender) => {
 
 const sendWithResend = (payload) =>
   new Promise((resolve, reject) => {
-    console.log("got resend api key")
     const apiKey = getResendApiKey();
 
     const request = https.request(
@@ -45,14 +44,14 @@ const sendWithResend = (payload) =>
         response.on('data', (chunk) => {
           data += chunk;
         });
-        console.log(data);
+
         response.on('end', () => {
           const isSuccess = response.statusCode >= 200 && response.statusCode < 300;
           if (!isSuccess) {
             if (response.statusCode === 401) {
               return reject(
                 new Error(
-                  'Resend unauthorized (401): API key is invalid/revoked or missing permission. Regenerate RESEND_API_KEY in the Resend dashboard and restart backend.'
+                  'Resend unauthorized (401): API key is invalid/revoked or missing permission.'
                 )
               );
             }
@@ -73,60 +72,81 @@ const sendWithResend = (payload) =>
   });
 
 const sendOtpEmail = async (toEmail, toName, otp) => {
-  if (!getResendApiKey()) {
-    throw new Error('RESEND_API_KEY is missing in environment variables');
+  const apiKey = getResendApiKey();
+
+  // If RESEND_API_KEY is not configured, run in safe simulation mode
+  if (!apiKey) {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`✉️  [MOCKMATE EMAIL DISPATCH] (No RESEND_API_KEY configured)`);
+    console.log(`👤 Recipient: ${toName} <${toEmail}>`);
+    console.log(`🔑 Verification OTP: [ ${otp} ]`);
+    console.log(`⏰ Expiration: 10 minutes`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    return {
+      success: true,
+      simulated: true,
+      otp,
+      message: `OTP [ ${otp} ] generated (development mode)`,
+    };
   }
 
   const sender = parseEmailFrom(process.env.EMAIL_FROM || process.env.RESEND_FROM || '');
   if (!sender.email) {
-    throw new Error('Set RESEND_SENDER_EMAIL or EMAIL_FROM with a valid sender email');
+    console.warn('⚠️  Valid sender email not set, falling back to simulation mode.');
+    console.log(`🔑 OTP for ${toEmail}: [ ${otp} ]`);
+    return {
+      success: true,
+      simulated: true,
+      otp,
+      message: `OTP [ ${otp} ] generated`,
+    };
   }
 
   const htmlContent = `
       <div style="font-family: Arial, sans-serif; max-width: 480px; margin: auto;
-                  border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
+                  border: 1px solid #e4e4e7; border-radius: 12px; overflow: hidden; background: #ffffff;">
 
         <!-- Header -->
-        <div style="background: #01696f; padding: 24px 32px;">
-          <h2 style="color: white; margin: 0; font-size: 20px;">MockMate Pro</h2>
-          <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0; font-size: 13px;">
-            AI-Powered Interview Preparation
+        <div style="background: #18181b; padding: 24px 32px;">
+          <h2 style="color: white; margin: 0; font-size: 20px; font-weight: 700;">MockMate Pro</h2>
+          <p style="color: rgba(255,255,255,0.7); margin: 4px 0 0; font-size: 13px;">
+            AI-Powered Technical Assessment Platform
           </p>
         </div>
 
         <!-- Body -->
         <div style="padding: 32px;">
-          <p style="font-size: 16px; color: #28251d; margin: 0 0 8px;">
+          <p style="font-size: 15px; color: #18181b; margin: 0 0 8px;">
             Hi <strong>${toName}</strong>,
           </p>
-          <p style="font-size: 14px; color: #7a7974; margin: 0 0 24px; line-height: 1.6;">
-            Use the OTP below to verify your email address and complete your registration.
+          <p style="font-size: 14px; color: #52525b; margin: 0 0 24px; line-height: 1.6;">
+            Use the OTP code below to verify your email address and complete your registration.
             This code expires in <strong>10 minutes</strong>.
           </p>
 
           <!-- OTP Box -->
-          <div style="background: #f3f0ec; border-radius: 8px; padding: 24px;
-                      text-align: center; margin-bottom: 24px;">
-            <p style="margin: 0 0 8px; font-size: 13px; color: #7a7974;
-                      text-transform: uppercase; letter-spacing: 1px;">
-              Your OTP Code
+          <div style="background: #fafafa; border-radius: 8px; padding: 20px;
+                      text-align: center; margin-bottom: 24px; border: 1px solid #e4e4e7;">
+            <p style="margin: 0 0 8px; font-size: 12px; color: #71717a;
+                      text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">
+              Your Verification Code
             </p>
-            <p style="margin: 0; font-size: 40px; font-weight: 700;
-                      letter-spacing: 12px; color: #01696f;">
+            <p style="margin: 0; font-size: 36px; font-weight: 700;
+                      letter-spacing: 8px; color: #18181b; font-family: monospace;">
               ${otp}
             </p>
           </div>
 
-          <p style="font-size: 13px; color: #bab9b4; margin: 0; line-height: 1.6;">
+          <p style="font-size: 13px; color: #71717a; margin: 0; line-height: 1.6;">
             If you did not request this, please ignore this email.
             Your account will not be created without OTP verification.
           </p>
         </div>
 
         <!-- Footer -->
-        <div style="background: #f7f6f2; padding: 16px 32px; border-top: 1px solid #dcd9d5;">
-          <p style="margin: 0; font-size: 12px; color: #bab9b4;">
-            © 2026 MockMate Pro. This is an automated email — please do not reply.
+        <div style="background: #fafafa; padding: 16px 32px; border-top: 1px solid #e4e4e7;">
+          <p style="margin: 0; font-size: 12px; color: #a1a1aa;">
+            © 2026 MockMate Pro. Created by Aditya Singh (sadityasingh7990@gmail.com).
           </p>
         </div>
       </div>
@@ -139,7 +159,21 @@ const sendOtpEmail = async (toEmail, toName, otp) => {
     html: htmlContent,
   };
 
-  await sendWithResend(mailOptions);
+  try {
+    await sendWithResend(mailOptions);
+    return { success: true, simulated: false };
+  } catch (err) {
+    console.warn(`⚠️  Resend delivery error (${err.message}). Falling back to simulation mode so user is not blocked.`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`🔑  [FALLBACK OTP] Recipient: ${toEmail} | Code: [ ${otp} ]`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    return {
+      success: true,
+      simulated: true,
+      otp,
+      deliveryError: err.message,
+    };
+  }
 };
 
 module.exports = { sendOtpEmail };

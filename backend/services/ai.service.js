@@ -126,9 +126,87 @@ const requestQuestionsBatch = async ({ client, role, difficulty, count, company 
   return rawQs;
 };
 
+const FALLBACK_BANK = [
+  {
+    questionText: 'What is the primary difference between useEffect and useLayoutEffect in React?',
+    options: [
+      'A. useEffect runs synchronously before paint, useLayoutEffect runs asynchronously after paint',
+      'B. useLayoutEffect runs synchronously immediately after DOM mutations before paint, useEffect runs after paint',
+      'C. useEffect is only for server-side rendering while useLayoutEffect is for client-side',
+      'D. There is no difference; they are aliases for the same underlying hook'
+    ],
+    correctAnswer: 'B',
+    explanation: 'useLayoutEffect fires synchronously after all DOM mutations but before the browser repaints the screen, making it suitable for measuring layout or synchronizing DOM reads/writes.'
+  },
+  {
+    questionText: 'What is the runtime complexity of accessing a key in a Hash Map on average?',
+    options: ['A. O(1)', 'B. O(log n)', 'C. O(n)', 'D. O(n log n)'],
+    correctAnswer: 'A',
+    explanation: 'Hash maps provide average O(1) constant time complexity for key lookups.'
+  },
+  {
+    questionText: 'In Node.js, what is the primary role of the Libuv library?',
+    options: [
+      'A. Providing template engine rendering for Express',
+      'B. Providing a cross-platform asynchronous I/O thread pool and event loop',
+      'C. Handling JWT cryptographic signing',
+      'D. Parsing incoming multipart/form-data requests'
+    ],
+    correctAnswer: 'B',
+    explanation: 'Libuv is a multi-platform C library that handles the event loop, thread pool, asynchronous file/network I/O in Node.js.'
+  },
+  {
+    questionText: 'What does the ACID acronym stand for in relational databases?',
+    options: [
+      'A. Atomicity, Consistency, Isolation, Durability',
+      'B. Asynchronous, Concurrent, Isolated, Distributed',
+      'C. Availability, Consistency, Integrity, Dependency',
+      'D. Authorization, Compression, Indexing, Decryption'
+    ],
+    correctAnswer: 'A',
+    explanation: 'ACID guarantees database transaction reliability: Atomicity, Consistency, Isolation, and Durability.'
+  },
+  {
+    questionText: 'Which HTTP status code is most appropriate when a requested resource is throttled due to rate limits?',
+    options: ['A. 400 Bad Request', 'B. 403 Forbidden', 'C. 429 Too Many Requests', 'D. 503 Service Unavailable'],
+    correctAnswer: 'C',
+    explanation: 'HTTP 429 Too Many Requests indicates the client has sent too many requests in a given amount of time (rate limited).'
+  },
+  {
+    questionText: 'What is the fundamental benefit of database indexing using B-Trees?',
+    options: [
+      'A. Reduces write amplification to zero',
+      'B. Reduces search time complexity from O(N) to O(log N)',
+      'C. Eliminates the need for foreign key constraints',
+      'D. Encrypts disk pages automatically'
+    ],
+    correctAnswer: 'B',
+    explanation: 'B-Tree indexes allow logarithmic O(log N) search, insertion, and deletion times instead of scanning all table records.'
+  },
+  {
+    questionText: 'What is the purpose of React.memo?',
+    options: [
+      'A. To cache API network requests in localStorage',
+      'B. To prevent unnecessary re-renders of a functional component when its props have not changed',
+      'C. To memoize expensive calculations inside component render body',
+      'D. To handle asynchronous state updates in concurrent mode'
+    ],
+    correctAnswer: 'B',
+    explanation: 'React.memo is a higher-order component that memoizes the rendered output, skipping re-renders if props are shallowly equal.'
+  }
+];
+
 const generateMcqQuestions = async (role, difficulty, count = 5, company = null) => {
   const safeCount = Math.max(1, Math.min(Number(count) || 5, 30));
   const batchSize = Math.max(1, Math.min(Number(process.env.OPENROUTER_BATCH_SIZE) || 5, 10));
+
+  if (!process.env.OPENROUTER_API_KEY) {
+    console.warn(`[AI] OPENROUTER_API_KEY is not set. Using curated question pool for "${role}" (${difficulty}).`);
+    return FALLBACK_BANK.slice(0, safeCount).map((q, idx) => ({
+      ...normalizeQuestion(q, idx),
+      questionId: `q${idx + 1}`,
+    }));
+  }
 
   const client = new OpenAI({
     apiKey: process.env.OPENROUTER_API_KEY,
@@ -165,9 +243,11 @@ const generateMcqQuestions = async (role, difficulty, count = 5, company = null)
     }
 
     if (!batchQuestions.length) {
-      const error = new Error(`AI provider error while generating MCQs: ${lastErr?.message || 'Unknown error'}`);
-      error.statusCode = 502;
-      throw error;
+      console.warn(`[AI] AI provider unavailable (${lastErr?.message}). Falling back to curated questions.`);
+      return FALLBACK_BANK.slice(0, safeCount).map((q, idx) => ({
+        ...normalizeQuestion(q, idx),
+        questionId: `q${idx + 1}`,
+      }));
     }
 
     allQuestions.push(...batchQuestions.slice(0, currentBatchSize));

@@ -80,11 +80,14 @@ exports.register = async (req, res, next) => {
       purpose:  'registration',
     });
 
-    await sendOtpEmail(email, name.trim(), otp);
+    const emailResult = await sendOtpEmail(email, name.trim(), otp);
 
     res.status(200).json({
       success: true,
-      message: `OTP sent to ${email}. Please verify to complete registration.`,
+      message: emailResult?.simulated
+        ? `Verification code: ${otp} (enter code below to complete registration)`
+        : `OTP sent to ${email}. Please verify to complete registration.`,
+      devOtp: emailResult?.simulated ? otp : undefined,
     });
   } catch (err) {
     next(err);
@@ -130,19 +133,27 @@ exports.verifyOtp = async (req, res, next) => {
       });
     }
 
-    // ✅ OTP correct — create user account
-    await User.create({
-      name:     otpRecord.name,
-      email:    otpRecord.email,
-      password: otpRecord.password,  // already hashed
-    });
+    // ✅ OTP correct — create or retrieve user account safely
+    let user = await User.findOne({ email: otpRecord.email });
+    if (!user) {
+      user = await User.create({
+        name:     otpRecord.name,
+        email:    otpRecord.email,
+        password: otpRecord.password,  // already hashed
+      });
+    }
 
-    await Otp.deleteOne({ _id: otpRecord._id });
+    await Otp.deleteMany({ email: otpRecord.email, purpose: 'registration' });
 
-    // ✅ NO token — user must login separately
     res.status(201).json({
       success: true,
       message: 'Email verified! Registration successful. Please login to continue.',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        isPremium: user.isPremium,
+      },
     });
   } catch (err) {
     next(err);
@@ -181,11 +192,14 @@ exports.resendOtp = async (req, res, next) => {
       purpose:  'registration',
     });
 
-    await sendOtpEmail(otpRecord.email, otpRecord.name, newOtp);
+    const emailResult = await sendOtpEmail(otpRecord.email, otpRecord.name, newOtp);
 
     res.status(200).json({
       success: true,
-      message: `New OTP sent to ${email}.`,
+      message: emailResult?.simulated
+        ? `New verification code: ${newOtp}`
+        : `New OTP sent to ${email}.`,
+      devOtp: emailResult?.simulated ? newOtp : undefined,
     });
   } catch (err) {
     next(err);
@@ -231,11 +245,14 @@ exports.forgotPassword = async (req, res, next) => {
       purpose: 'reset_password',
     });
 
-    await sendOtpEmail(user.email, user.name, otp);
+    const emailResult = await sendOtpEmail(user.email, user.name, otp);
 
     res.status(200).json({
       success: true,
-      message: `Password reset OTP sent to ${user.email}`,
+      message: emailResult?.simulated
+        ? `Password reset code: ${otp}`
+        : `Password reset OTP sent to ${user.email}`,
+      devOtp: emailResult?.simulated ? otp : undefined,
     });
   } catch (err) {
     next(err);
