@@ -28,14 +28,15 @@
 ```mermaid
 flowchart TD
     Client["Client (React 19 + Vite 8 + Tailwind CSS)"] -->|REST API / Bearer JWT| Backend["Backend (Express 5.2 + Node.js)"]
-    Backend -->|Mongoose ODM| DB[("MongoDB (Atlas / Memory Server)")]
+    Backend -->|Firebase Admin / Firestore| DB[("Google Cloud Firestore")]
+    Backend -->|Firebase Auth| FA["Firebase Authentication"]
     Backend -->|OpenAI SDK / Fallback Engine| AI["OpenRouter / OpenAI AI Service"]
     Backend -->|Transaction Verification| Razorpay["Razorpay Payment Gateway"]
     Backend -->|Email & OTP Dispatch| Resend["Resend API / Sandbox Simulation"]
 ```
 
-- **Frontend**: React 19, Vite 8, Tailwind CSS, React Router v7, React Hot Toast, Axios.
-- **Backend**: Node.js, Express 5.2, Mongoose 9.3, JWT, bcryptjs, MongoDB Memory Server.
+- **Frontend**: React 19, Vite 8, Tailwind CSS, Firebase Client SDK, React Router v7, React Hot Toast, Axios.
+- **Backend**: Node.js, Express 5.2, Firebase Admin SDK, Cloud Firestore, JWT, bcryptjs.
 - **AI & Evaluation**: OpenRouter / OpenAI SDK with role-specialized curated fallback banks.
 - **Audio / Voice**: Web Speech API (`SpeechRecognition` & `speechSynthesis`).
 

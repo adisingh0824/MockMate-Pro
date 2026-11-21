@@ -116,10 +116,17 @@ const Login = () => {
           <p className="text-xs text-stone-500 mb-6">Enter your credentials to continue to your dashboard.</p>
 
           {/* Demo account notice */}
-          <div className="mb-6 rounded-lg border border-stone-200 bg-white p-3.5 shadow-xs">
-            <div className="text-xs font-semibold text-stone-900 mb-1.5 flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
-              Demo Credentials
+          <div
+            onClick={() => setForm({ email: 'testuser@gmail.com', password: 'testpassword@1234' })}
+            className="mb-6 rounded-lg border border-stone-200 bg-white p-3.5 shadow-xs cursor-pointer hover:border-brand-500 hover:bg-stone-50/50 transition-all"
+            title="Click to auto-fill demo credentials"
+          >
+            <div className="text-xs font-semibold text-stone-900 mb-1.5 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                Demo Credentials
+              </span>
+              <span className="text-[10px] text-brand-700 font-normal hover:underline">Click to fill</span>
             </div>
             <div className="space-y-0.5 text-xs text-stone-600 font-mono">
               <p>email: testuser@gmail.com</p>
