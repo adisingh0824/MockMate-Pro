@@ -1,5 +1,5 @@
-require('dotenv').config();
-const { evaluateInterviewAnswer } = require('./services/interviewAI.service');
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
+const { evaluateInterviewAnswer } = require('../services/interviewAI.service');
 
 (async () => {
   try {

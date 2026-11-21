@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
-import { companyAPI } from '../services/api'
+import { companyAPI, sessionAPI } from '../services/api'
+import { useAuth } from '../context/AuthContext'
+import toast from 'react-hot-toast'
 
 const levelColor = {
   Entry:  'bg-emerald-50 text-emerald-800 border border-emerald-200',
@@ -11,8 +13,10 @@ const levelColor = {
 
 const CompanyPrep = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [companies, setCompanies] = useState([])
   const [loading, setLoading] = useState(true)
+  const [startingRole, setStartingRole] = useState('')
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [expanded, setExpanded] = useState(null)
@@ -46,14 +50,45 @@ const CompanyPrep = () => {
     c.name.toLowerCase().includes(search.toLowerCase())
   )
 
-  const handleSchedule = (company, role) => {
-    navigate('/premium', {
-      state: {
-        company: company.name,
+  const handleSchedule = async (company, role) => {
+    if (!user?.isPremium) {
+      navigate('/premium', {
+        state: {
+          company: company.name,
+          role: role.title,
+          level: role.level,
+        },
+      })
+      return
+    }
+
+    const diffMap = {
+      Entry: 'easy',
+      Mid: 'medium',
+      Senior: 'hard',
+    }
+    const diff = diffMap[role.level] || 'medium'
+    const targetKey = `${company.name}-${role.title}`
+    setStartingRole(targetKey)
+
+    try {
+      const res = await sessionAPI.startSession({
         role: role.title,
-        level: role.level,
-      },
-    })
+        company: company.name,
+        difficulty: diff,
+        count: role.questions || 8,
+        durationMinutes: (role.questions || 8) * 2,
+        type: 'practice',
+      })
+      toast.success(`Starting ${company.name} drill for ${role.title}`)
+      navigate(`/session/${res.data.session.id}`, {
+        state: { session: res.data.session, selectedCount: role.questions || 8 },
+      })
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to start company practice session')
+    } finally {
+      setStartingRole('')
+    }
   }
 
   return (
@@ -92,17 +127,26 @@ const CompanyPrep = () => {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-[10px] font-bold uppercase tracking-widest text-brand-700">Company Tracks</span>
+              {user?.isPremium && (
+                <span className="rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.2 text-[10px] font-semibold">
+                  Premium Active
+                </span>
+              )}
             </div>
             <p className="text-xs text-stone-600">
-              Company-tailored interview simulations and specific rubric evaluations are part of premium access.
+              {user?.isPremium
+                ? 'Your premium access is unlocked. Select any company track below to launch an instant tailored drill.'
+                : 'Company-tailored interview simulations and specific rubric evaluations are part of premium access.'}
             </p>
           </div>
-          <button
-            onClick={() => navigate('/premium')}
-            className="btn-primary !w-auto !px-4 !py-2 text-xs flex-shrink-0"
-          >
-            View Plans →
-          </button>
+          {!user?.isPremium && (
+            <button
+              onClick={() => navigate('/premium')}
+              className="btn-primary !w-auto !px-4 !py-2 text-xs flex-shrink-0"
+            >
+              View Plans →
+            </button>
+          )}
         </div>
 
         {error && (
@@ -151,9 +195,10 @@ const CompanyPrep = () => {
                       </div>
                       <button
                         onClick={() => handleSchedule(company, role)}
-                        className="flex-shrink-0 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 px-3 py-1 rounded transition-colors whitespace-nowrap"
+                        disabled={Boolean(startingRole)}
+                        className="flex-shrink-0 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 disabled:opacity-50 border border-brand-200 px-3 py-1 rounded transition-colors whitespace-nowrap"
                       >
-                        Start →
+                        {startingRole === `${company.name}-${role.title}` ? 'Starting...' : 'Start →'}
                       </button>
                     </div>
                   ))}

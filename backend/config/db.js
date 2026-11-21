@@ -182,36 +182,57 @@ const seedInitialData = async () => {
   }
 };
 
+// Connect to the database before starting the server to avoid query buffering issues
 const connectDB = async () => {
   const configuredUri = process.env.MONGO_URI ? process.env.MONGO_URI.trim() : '';
 
-  // 1. Attempt connection if a remote URI or valid URI is specified
-  if (configuredUri && !configuredUri.includes('localhost:27017') && !configuredUri.includes('127.0.0.1:27017')) {
+  if (configuredUri) {
+    // Try a real MongoDB connection first
     try {
       console.log('Connecting to configured MongoDB database...');
-      const conn = await mongoose.connect(configuredUri, {
-        serverSelectionTimeoutMS: 5000,
-      });
+      const timeout = (configuredUri.includes('localhost') || configuredUri.includes('127.0.0.1')) ? 1500 : 5000;
+      const conn = await mongoose.connect(configuredUri, { serverSelectionTimeoutMS: timeout });
       console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
       await seedInitialData();
       return;
     } catch (error) {
-      console.warn(`⚠️  Configured MongoDB connection failed (${error.message}). Falling back to memory engine.`);
+      console.warn(`⚠️  Configured MongoDB connection failed (${error.message}).`);
     }
   }
 
-  // 2. Fallback to MongoMemoryServer for 100% reliable local/zero-config operation
-  try {
-    const { MongoMemoryServer } = require('mongodb-memory-server');
-    if (!mongoMemoryServerInstance) {
-      mongoMemoryServerInstance = await MongoMemoryServer.create();
+  // No valid URI or connection failed – decide fallback based on environment
+  if (process.env.NODE_ENV !== 'production') {
+    // Development fallback: use mongodb-memory-server with a persistent dbPath
+    // so that data (new user accounts etc.) survives server restarts.
+    try {
+      const { MongoMemoryServer } = require('mongodb-memory-server');
+      const path = require('path');
+      const fs   = require('fs');
+
+      // Store DB files next to this config directory so data persists across restarts
+      const dbPath = path.resolve(__dirname, '../data/db');
+      if (!fs.existsSync(dbPath)) fs.mkdirSync(dbPath, { recursive: true });
+
+      if (!mongoMemoryServerInstance) {
+        mongoMemoryServerInstance = await MongoMemoryServer.create({
+          instance: {
+            dbPath,
+            storageEngine: 'wiredTiger',
+          },
+        });
+      }
+      const memoryUri = mongoMemoryServerInstance.getUri();
+      const conn = await mongoose.connect(memoryUri);
+      console.log(`✅ MongoDB (Persistent Dev Mode) Connected: ${conn.connection.host}`);
+      await seedInitialData();
+    } catch (err) {
+      console.error(`❌ In-Memory MongoDB startup error: ${err.message}`);
+      throw err;
     }
-    const memoryUri = mongoMemoryServerInstance.getUri();
-    const conn = await mongoose.connect(memoryUri);
-    console.log(`✅ MongoDB In-Memory Connected: ${conn.connection.host} (Offline/Zero-config mode active)`);
-    await seedInitialData();
-  } catch (err) {
-    console.error(`❌ In-Memory MongoDB startup error: ${err.message}`);
+  } else {
+    const errorMsg = 'No MONGO_URI provided or database connection failed in production.';
+    console.error(`❌ ${errorMsg}`);
+    throw new Error(errorMsg);
   }
 };
 

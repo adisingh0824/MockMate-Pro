@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useLocation, useParams } from 'react-router-dom'
 import { sessionAPI } from '../services/api'
 import Navbar from '../components/Navbar'
+import Loader from '../components/Loader'
 import toast from 'react-hot-toast'
 
 
@@ -9,7 +10,8 @@ const Session = () => {
   const { id } = useParams()
   const navigate = useNavigate()
   const { state } = useLocation()
-  const session = state?.session
+  const [session, setSession] = useState(state?.session || null)
+  const [loadingSession, setLoadingSession] = useState(!state?.session)
 
   // ── existing state ──────────────────────────────────────────────────────────
   const [current, setCurrent]                       = useState(0)
@@ -28,7 +30,39 @@ const Session = () => {
 
   // ── existing refs ───────────────────────────────────────────────────────────
   const autoSubmittedRef = useRef(false)
+  const handleSubmitRef  = useRef(null)
   const maxViolations    = 3
+
+  // ── fetch session if reloaded / not in location state ─────────────────────────
+  useEffect(() => {
+    if (session) return
+    let isMounted = true
+    sessionAPI.getSession(id)
+      .then((res) => {
+        if (!isMounted) return
+        const sess = res.data?.session
+        if (!sess) {
+          toast.error('Session not found')
+          navigate('/practice-select')
+          return
+        }
+        if (sess.completedAt) {
+          navigate(`/feedback/${id}`, { state: { result: sess } })
+          return
+        }
+        setSession(sess)
+      })
+      .catch((err) => {
+        if (!isMounted) return
+        toast.error(err.response?.data?.message || 'Failed to load session')
+        navigate('/practice-select')
+      })
+      .finally(() => {
+        if (isMounted) setLoadingSession(false)
+      })
+    return () => { isMounted = false }
+  }, [id, session, navigate])
+
 
   // ── existing memos & helpers ────────────────────────────────────────────────
   const qs              = useMemo(() => session?.questions || [], [session])
@@ -48,7 +82,6 @@ const Session = () => {
   }
   const isWarning = timeLeft !== null && timeLeft <= 120  // red when < 2 min
 
-
   // ── fullscreen helper ───────────────────────────────────────────────────────
   const enterFullscreen = async () => {
     try {
@@ -62,21 +95,13 @@ const Session = () => {
     }
   }
 
-
-  // ── redirect if no session ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (!session) navigate('/role-select')
-  }, [session, navigate])
-
-
   // ── FIX 5: set timer when session loads ─────────────────────────────────────
   useEffect(() => {
     if (!session) return
     const mins = session?.durationMinutes || state?.selectedDuration || 20
     setTimeLeft(mins * 60)
     setTimerStarted(true)
-  }, [session]) // eslint-disable-line react-hooks/exhaustive-deps
-
+  }, [session, state?.selectedDuration])
 
   // ── FIX 5: countdown — auto-submit at 0:00 ─────────────────────────────────
   useEffect(() => {
@@ -89,7 +114,7 @@ const Session = () => {
           if (!autoSubmittedRef.current) {
             autoSubmittedRef.current = true
             toast.error('⏰ Time is up! Submitting your test automatically.')
-            handleSubmit(true)
+            handleSubmitRef.current?.(true)
           }
           return 0
         }
@@ -98,7 +123,7 @@ const Session = () => {
     }, 1000)
 
     return () => clearInterval(timerRef.current)
-  }, [timerStarted]) // runs only once when timer starts
+  }, [timerStarted]) // eslint-disable-line react-hooks/exhaustive-deps
 
 
   // ── fullscreen & tab-switch violation listeners ────────────────────────────
@@ -155,6 +180,10 @@ const Session = () => {
     }
   }, [qs, answers, id, navigate])
 
+  useEffect(() => {
+    handleSubmitRef.current = handleSubmit
+  }, [handleSubmit])
+
 
   // ── auto-submit on max violations ──────────────────────────────────────────
   useEffect(() => {
@@ -177,6 +206,14 @@ const Session = () => {
     return questionId && answers[questionId]
   }).length
 
+  if (loadingSession) {
+    return (
+      <div className="min-h-screen bg-stone-50">
+        <Navbar />
+        <Loader text="Resuming session..." />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-stone-50">

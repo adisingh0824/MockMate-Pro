@@ -1,14 +1,17 @@
 const { OpenAI } = require('openai');
 
-const getClient = () =>
-  new OpenAI({
+const getClient = () => {
+  const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  return new OpenAI({
     baseURL: process.env.OPENROUTER_API_URL || undefined,
-    apiKey: process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY,
+    apiKey,
     defaultHeaders: {
       'HTTP-Referer': process.env.OPENROUTER_SITE_URL || 'http://localhost:3000',
       'X-Title': process.env.OPENROUTER_SITE_NAME || 'MockMate Pro',
     },
   });
+};
 
 const logProviderError = (scope, err) => {
   const status = err?.status || err?.response?.status || 'unknown';
@@ -59,6 +62,17 @@ const parseInterviewAiResponse = (raw) => {
 async function generateInterviewQuestion({ role, level, difficulty, conversationHistory, questionNumber, totalQuestions }) {
   const client = getClient();
 
+  const defaultQuestions = [
+    `Could you describe your experience as a ${role} and explain how you approach structuring complex applications?`,
+    `How do you handle state management, debugging, and performance bottlenecks in your everyday workflow?`,
+    `Can you discuss a challenging technical bug or outage you resolved recently and what you learned from it?`,
+    `How do you balance writing maintainable, well-tested code against rapid delivery deadlines?`
+  ];
+
+  if (!client) {
+    return defaultQuestions[(questionNumber - 1) % defaultQuestions.length];
+  }
+
   const systemPrompt = `You are a professional, human-like interviewer conducting a ${level} level technical interview for the role: ${role}.
 
 RULES:
@@ -83,22 +97,12 @@ RULES:
       : [{ role: 'user', content: 'Please ask the next interview question based on my previous answer.' }]),
   ];
 
-  if (!process.env.OPENROUTER_API_KEY && !process.env.OPENAI_API_KEY) {
-    const defaultQuestions = [
-      `Could you describe your experience as a ${role} and explain how you approach structuring complex applications?`,
-      `How do you handle state management, debugging, and performance bottlenecks in your everyday workflow?`,
-      `Can you discuss a challenging technical bug or outage you resolved recently and what you learned from it?`,
-      `How do you balance writing maintainable, well-tested code against rapid delivery deadlines?`
-    ];
-    return defaultQuestions[(questionNumber - 1) % defaultQuestions.length];
-  }
-
   try {
     const modelName = process.env.OPENROUTER_MODEL || 'gpt-4o-mini';
     console.debug(`[InterviewAI] generateInterviewQuestion using model: ${modelName}`);
 
     const result = await client.chat.completions.create({
-        model: modelName,
+      model: modelName,
       messages,
       max_tokens: 300,
     });
@@ -107,12 +111,6 @@ RULES:
   } catch (err) {
     logProviderError('generateInterviewQuestion', err);
     console.warn(`[InterviewAI] Falling back to structured question pool.`);
-    const defaultQuestions = [
-      `Could you describe your experience as a ${role} and explain how you approach structuring complex applications?`,
-      `How do you handle state management, debugging, and performance bottlenecks in your everyday workflow?`,
-      `Can you discuss a challenging technical bug or outage you resolved recently and what you learned from it?`,
-      `How do you balance writing maintainable, well-tested code against rapid delivery deadlines?`
-    ];
     return defaultQuestions[(questionNumber - 1) % defaultQuestions.length];
   }
 }
@@ -122,6 +120,19 @@ RULES:
  */
 async function evaluateInterviewAnswer({ role, level, conversationHistory, userAnswer, questionNumber, totalQuestions, isLast }) {
   const client = getClient();
+
+  if (!client) {
+    if (isLast) {
+      return {
+        nextQuestion: null,
+        quickFeedback: 'Thank you for walking through that thoroughly. That concludes our interview round today.',
+      };
+    }
+    return {
+      nextQuestion: `That provides good context. Could you elaborate on how you would test and monitor that in a production deployment?`,
+      quickFeedback: 'Good explanation on the design trade-offs.',
+    };
+  }
 
   const systemPrompt = `You are a professional interviewer for ${role} (${level} level).
 The candidate just answered a question.

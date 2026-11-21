@@ -4,3 +4,6 @@
 node_modules/
 npm-debug.log*
 dist/
+
+# Persistent dev database files (auto-created by mongodb-memory-server with dbPath)
+data/db/

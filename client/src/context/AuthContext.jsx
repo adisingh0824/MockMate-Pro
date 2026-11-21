@@ -24,7 +24,7 @@ export const AuthProvider = ({ children }) => {
         } else {
           logout()
         }
-      } catch (err) {
+      } catch {
         // Token might be invalid or expired
         logout()
       } finally {

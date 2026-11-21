@@ -162,7 +162,7 @@ exports.verifyPayment = async (req, res, next) => {
     const user = await User.findByIdAndUpdate(
       req.user.id,
       { isPremium: true },
-      { new: true }
+      { returnDocument: 'after' }
     ).select('name email isPremium');
 
     console.log('✅ User updated to premium');
@@ -175,7 +175,7 @@ exports.verifyPayment = async (req, res, next) => {
         razorpaySignature: razorpay_signature,
         status: 'success',
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     console.log('✅ Transaction updated:', transaction?._id);

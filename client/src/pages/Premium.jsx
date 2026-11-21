@@ -51,12 +51,6 @@ const Premium = () => {
   })
 
   const handleUpgrade = async (plan) => {
-    const key = import.meta.env.VITE_RAZORPAY_KEY_ID
-    if (!key) {
-      toast.error('Razorpay key is not configured.')
-      return
-    }
-
     try {
       setProcessingPlanId(plan.planId)
 
@@ -68,13 +62,19 @@ const Premium = () => {
       const { data } = await paymentAPI.createOrder({ planId: plan.planId })
       const order = data?.order
       const transactionId = data?.transactionId
+      const key = data?.keyId || import.meta.env.VITE_RAZORPAY_KEY_ID
+
+      if (!key) {
+        toast.error('Razorpay key is not configured on the server. Set RAZORPAY_KEY_ID in backend .env')
+        return
+      }
 
       if (!order?.id) {
         throw new Error('Order creation failed')
       }
 
       const options = {
-        key: data.keyId || key,
+        key,
         amount: order.amount,
         currency: order.currency,
         name: 'MockMate Pro',

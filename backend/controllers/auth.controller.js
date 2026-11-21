@@ -145,9 +145,13 @@ exports.verifyOtp = async (req, res, next) => {
 
     await Otp.deleteMany({ email: otpRecord.email, purpose: 'registration' });
 
+    // Generate JWT so the client can auto-login immediately after verification
+    const token = generateToken(user._id);
+
     res.status(201).json({
       success: true,
-      message: 'Email verified! Registration successful. Please login to continue.',
+      message: 'Account created! You are now logged in.',
+      token,
       user: {
         id: user._id,
         name: user.name,
@@ -409,7 +413,7 @@ exports.updateMe = async (req, res, next) => {
     const user = await User.findByIdAndUpdate(
       req.user.id,
       { name: name.trim() },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
 
     if (!user) {

@@ -170,7 +170,7 @@ const History = () => {
                         <span className={`text-[10px] px-2 py-0.5 rounded border capitalize font-medium ${dc[s.difficulty] || 'bg-stone-100 text-stone-600 border-stone-200'}`}>{s.difficulty}</span>
                         <span className={`text-[10px] px-2 py-0.5 rounded border capitalize font-medium ${tc[getSessionType(s)]}`}>{getSessionType(s)}</span>
                         <span className="text-[11px] text-stone-400 ml-1">
-                          {formatDate(s.completedAt || s.createdAt)}
+                          {formatDate(s.completedAt || s.createdAt)} · {formatTime(s.completedAt || s.createdAt)}
                         </span>
                       </div>
                     </div>
@@ -232,7 +232,7 @@ const History = () => {
                           </div>
                           <div>
                             <p className="text-[10px] text-stone-400 uppercase tracking-wider mb-0.5">Date</p>
-                            <p className="text-stone-700">{formatDate(t.createdAt)}</p>
+                            <p className="text-stone-700">{formatDate(t.createdAt)} {formatTime(t.createdAt)}</p>
                           </div>
                         </div>
                         {t.errorMessage && (

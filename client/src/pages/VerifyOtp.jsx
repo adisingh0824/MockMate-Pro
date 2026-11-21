@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { authAPI } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
 
 const VerifyOtp = () => {
   const navigate = useNavigate()
   const { state } = useLocation()
+  const { login } = useAuth()
   const email  = state?.email || ''
   const devOtp = state?.devOtp || ''
   const [otp, setOtp]         = useState(['', '', '', '', '', ''])
@@ -23,7 +25,7 @@ const VerifyOtp = () => {
     }
     const id = setInterval(() => setTimer(t => t > 0 ? t - 1 : 0), 1000)
     return () => clearInterval(id)
-  }, [])
+  }, [devOtp, email, navigate])
 
   const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
@@ -48,9 +50,17 @@ const VerifyOtp = () => {
     if (code.length < 6) { toast.error('Please enter all 6 digits'); return }
     setLoading(true)
     try {
-      await authAPI.verifyOtp({ email, otp: code })
-      toast.success('Email verified successfully. Please sign in.')
-      navigate('/login')
+      const res = await authAPI.verifyOtp({ email, otp: code })
+      if (res.data?.token && res.data?.user) {
+        // Auto-login: store token and user, then go straight to dashboard
+        login(res.data.token, res.data.user)
+        toast.success(`Welcome, ${res.data.user.name}! Account created successfully.`)
+        navigate('/dashboard', { replace: true })
+      } else {
+        // Fallback: server didn't return a token (backward compat)
+        toast.success('Email verified! Please sign in to continue.')
+        navigate('/login', { replace: true })
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Invalid verification code')
       setOtp(['', '', '', '', '', ''])
@@ -68,7 +78,7 @@ const VerifyOtp = () => {
         toast.success(`New code: ${res.data.devOtp}`)
       } else {
         setOtp(['', '', '', '', '', ''])
-        toast.success('A new code has been sent.')
+        toast.success('A new code has been sent to your email.')
         inputs.current[0]?.focus()
       }
     } catch (err) {
@@ -88,7 +98,17 @@ const VerifyOtp = () => {
           </div>
           <h2 className="text-xl font-bold text-stone-900 mb-1">Check your email</h2>
           <p className="text-xs text-stone-500 mb-1">We sent a 6-digit confirmation code to</p>
-          <p className="text-xs font-semibold text-stone-900 mb-6 truncate">{email}</p>
+          <p className="text-xs font-semibold text-stone-900 mb-4 truncate">{email}</p>
+
+          {/* Dev-mode banner: shown only when OTP was auto-filled */}
+          {devOtp && devOtp.length === 6 && (
+            <div className="mb-4 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800 font-medium flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
+                <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <span>Dev mode — OTP auto-filled: <strong>{devOtp}</strong></span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit}>
             <div className="flex gap-2 justify-center mb-3" onPaste={handlePaste}>

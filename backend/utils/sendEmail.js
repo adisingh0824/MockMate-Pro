@@ -164,7 +164,7 @@ const sendOtpEmail = async (toEmail, toName, otp) => {
     return { success: true, simulated: false };
   } catch (err) {
     // If the sender domain is unverified (403), retry using Resend's default sandbox sender onboarding@resend.dev
-    if (err.message && (err.message.includes('not verified') || err.message.includes('403'))) {
+    if (err.message && (err.message.includes('not verified') || err.message.includes('403') || err.message.includes('Invalid `to` field') || err.message.includes('422'))) {
       try {
         console.log('Retrying email dispatch using Resend test sender (onboarding@resend.dev)...');
         await sendWithResend({

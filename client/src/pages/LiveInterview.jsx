@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { interviewAPI } from '../services/api';
+import { interviewAPI, sessionAPI } from '../services/api';
 import toast from 'react-hot-toast';
 
 // ── Voice Activity Detection (silence = 1.8s) ───────────────────
@@ -25,8 +25,8 @@ const LiveInterview = () => {
   const navigate  = useNavigate();
   const location  = useLocation();
 
-  const session       = location.state?.session;
-  const firstQuestion = location.state?.firstQuestion;
+  const [session, setSession]             = useState(location.state?.session || null);
+  const [firstQuestion, setFirstQuestion] = useState(location.state?.firstQuestion || '');
 
   // ── state ──────────────────────────────────────────────────────
   const [uiState, setUiState]             = useState(STATES.LOADING);
@@ -189,10 +189,43 @@ const LiveInterview = () => {
     startListeningRef.current = startListening;
   }, [startListening]);
 
+  // ── Restore session if page reloaded ───────────────────────────
+  useEffect(() => {
+    if (session) return;
+    let mounted = true;
+    sessionAPI.getSession(id)
+      .then((res) => {
+        if (!mounted) return;
+        const s = res.data?.session;
+        if (!s) {
+          navigate('/interview-setup');
+          return;
+        }
+        if (s.completedAt) {
+          navigate(`/feedback/${id}`, { state: { result: s } });
+          return;
+        }
+        setSession({
+          id: s._id,
+          role: s.role,
+          difficulty: s.difficulty,
+          level: s.difficulty === 'hard' ? 'Senior' : s.difficulty === 'medium' ? 'Junior' : 'Fresher',
+          totalQuestions: s.count || 5,
+        });
+        if (!firstQuestion) {
+          setFirstQuestion(`Could you describe your background and architectural experience in ${s.role}?`);
+        }
+      })
+      .catch(() => {
+        if (!mounted) return;
+        navigate('/interview-setup');
+      });
+    return () => { mounted = false; };
+  }, [id, session, firstQuestion, navigate]);
+
   // ── Show first question once loaded ───────────────────────────
   useEffect(() => {
     if (!session || !firstQuestion) {
-      navigate('/interview-setup');
       return;
     }
     navigator.mediaDevices.getUserMedia({ audio: true })
