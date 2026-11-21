@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { authAPI } from '../services/api'
 import { useAuth } from '../context/AuthContext'
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth'
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth'
 import { auth as firebaseAuth } from '../firebase'
 import toast from 'react-hot-toast'
 
@@ -124,8 +124,45 @@ const Register = () => {
         navigate('/dashboard', { replace: true })
       } catch (fbErr) {
         if (fbErr.code === 'auth/email-already-in-use') {
-          toast.error('This email is already registered. Please sign in.')
-          navigate('/login')
+          // If the account already exists in Firebase, sign in directly with entered credentials
+          try {
+            const loginCred = await signInWithEmailAndPassword(
+              firebaseAuth,
+              form.email.toLowerCase(),
+              form.password
+            )
+            const idToken = await loginCred.user.getIdToken()
+            let activeToken = idToken
+            let userData = {
+              id: loginCred.user.uid,
+              name: form.name.trim() || loginCred.user.displayName || 'Candidate',
+              email: form.email.toLowerCase(),
+              isPremium: false,
+            }
+
+            try {
+              const syncRes = await authAPI.firebaseSync({
+                email: form.email.toLowerCase(),
+                name: userData.name,
+                idToken,
+              })
+              if (syncRes.data?.token) {
+                activeToken = syncRes.data.token
+                if (syncRes.data?.user) userData = syncRes.data.user
+              }
+            } catch (syncErr) {
+              console.warn('Sync notice:', syncErr.message)
+            }
+
+            login(activeToken, userData)
+            toast.success(`Welcome back, ${userData.name}!`)
+            navigate('/dashboard', { replace: true })
+            return
+          } catch (signInErr) {
+            console.warn('Sign-in fallback failed:', signInErr.message)
+            toast.error('This email is already registered. Please sign in.')
+            navigate('/login')
+          }
         } else if (err.response?.data?.message?.includes('domain is not verified') || err.response?.data?.message?.includes('Resend')) {
           // Backward-compat for legacy backend instances still updating on Render
           toast.success('Registration initiated! Enter verification code.')

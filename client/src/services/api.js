@@ -16,19 +16,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    const isAuthRoute = err.config?.url?.includes('/auth/register') ||
-                        err.config?.url?.includes('/auth/firebase-sync') ||
-                        err.config?.url?.includes('/auth/login')
-
-    if (err.response?.status === 401 && !isAuthRoute) {
-      const currentPath = window.location.pathname
-      const isPublicPage = currentPath === '/' || currentPath.includes('/login') || currentPath.includes('/register') || currentPath.includes('/verify-otp')
-      if (!isPublicPage) {
-        localStorage.removeItem('mm_token')
-        localStorage.removeItem('mm_user')
-        window.location.href = '/login'
-      }
-    }
+    // Preserve local state without abrupt page redirect
     return Promise.reject(err)
   }
 )
