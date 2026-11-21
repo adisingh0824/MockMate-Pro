@@ -80,14 +80,20 @@ exports.register = async (req, res, next) => {
       purpose:  'registration',
     });
 
-    const emailResult = await sendOtpEmail(email, name.trim(), otp);
+    let emailResult = { simulated: true, otp };
+    try {
+      emailResult = await sendOtpEmail(email, name.trim(), otp);
+    } catch (emailErr) {
+      console.warn('⚠️ sendOtpEmail error caught in register controller:', emailErr.message);
+      emailResult = { simulated: true, otp, deliveryError: emailErr.message };
+    }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: emailResult?.simulated
+      message: (emailResult?.simulated || emailResult?.deliveryError)
         ? `Verification code: ${otp} (enter code below to complete registration)`
         : `OTP sent to ${email}. Please verify to complete registration.`,
-      devOtp: emailResult?.simulated ? otp : undefined,
+      devOtp: (emailResult?.simulated || emailResult?.deliveryError) ? otp : undefined,
     });
   } catch (err) {
     next(err);
@@ -218,14 +224,20 @@ exports.resendOtp = async (req, res, next) => {
       purpose:  'registration',
     });
 
-    const emailResult = await sendOtpEmail(otpRecord.email, otpRecord.name, newOtp);
+    let emailResult = { simulated: true, otp: newOtp };
+    try {
+      emailResult = await sendOtpEmail(otpRecord.email, otpRecord.name, newOtp);
+    } catch (emailErr) {
+      console.warn('⚠️ sendOtpEmail error caught in resendOtp controller:', emailErr.message);
+      emailResult = { simulated: true, otp: newOtp, deliveryError: emailErr.message };
+    }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: emailResult?.simulated
+      message: (emailResult?.simulated || emailResult?.deliveryError)
         ? `New verification code: ${newOtp}`
         : `New OTP sent to ${email}.`,
-      devOtp: emailResult?.simulated ? newOtp : undefined,
+      devOtp: (emailResult?.simulated || emailResult?.deliveryError) ? newOtp : undefined,
     });
   } catch (err) {
     next(err);
@@ -271,14 +283,20 @@ exports.forgotPassword = async (req, res, next) => {
       purpose: 'reset_password',
     });
 
-    const emailResult = await sendOtpEmail(user.email, user.name, otp);
+    let emailResult = { simulated: true, otp };
+    try {
+      emailResult = await sendOtpEmail(user.email, user.name, otp);
+    } catch (emailErr) {
+      console.warn('⚠️ sendOtpEmail error caught in forgotPassword controller:', emailErr.message);
+      emailResult = { simulated: true, otp, deliveryError: emailErr.message };
+    }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: emailResult?.simulated
+      message: (emailResult?.simulated || emailResult?.deliveryError)
         ? `Password reset code: ${otp}`
         : `Password reset OTP sent to ${user.email}`,
-      devOtp: emailResult?.simulated ? otp : undefined,
+      devOtp: (emailResult?.simulated || emailResult?.deliveryError) ? otp : undefined,
     });
   } catch (err) {
     next(err);

@@ -23,7 +23,7 @@ app.use('/api/payments', require('./routes/payment.routes'));
 app.use('/api/interview', require('./routes/interview.routes'));
 
 app.get('/', (req, res) =>
-  res.json({ message: 'MockMate Pro API ✅' })
+  res.json({ message: 'MockMate Pro API ✅', version: '2.2.0-firebase' })
 );
 
 app.use(require('./middleware/error.middleware'));
