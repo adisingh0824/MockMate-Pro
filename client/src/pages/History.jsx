@@ -32,12 +32,16 @@ const History = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [sessionsRes, transactionsRes] = await Promise.all([
+        const [sessionsResult, transactionsResult] = await Promise.allSettled([
           sessionAPI.getHistory(),
           paymentAPI.getTransactionHistory(),
         ])
-        setSessions(sessionsRes.data.sessions || [])
-        setTransactions(transactionsRes.data.transactions || [])
+        if (sessionsResult.status === 'fulfilled') {
+          setSessions(sessionsResult.value.data?.sessions || [])
+        }
+        if (transactionsResult.status === 'fulfilled') {
+          setTransactions(transactionsResult.value.data?.transactions || [])
+        }
       } catch (error) {
         console.error('Error fetching history:', error)
       } finally {
