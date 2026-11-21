@@ -16,24 +16,33 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem('mm_token')
-      localStorage.removeItem('mm_user')
-      window.location.href = '/login'
+    const isAuthRoute = err.config?.url?.includes('/auth/register') ||
+                        err.config?.url?.includes('/auth/firebase-sync') ||
+                        err.config?.url?.includes('/auth/login')
+
+    if (err.response?.status === 401 && !isAuthRoute) {
+      const currentPath = window.location.pathname
+      const isPublicPage = currentPath === '/' || currentPath.includes('/login') || currentPath.includes('/register') || currentPath.includes('/verify-otp')
+      if (!isPublicPage) {
+        localStorage.removeItem('mm_token')
+        localStorage.removeItem('mm_user')
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(err)
   }
 )
 
 export const authAPI = {
-  register:  (data)  => api.post('/auth/register', data),
-  verifyOtp: (data)  => api.post('/auth/verify-otp', data),
-  resendOtp: (email) => api.post('/auth/resend-otp', { email }),
+  register:     (data)  => api.post('/auth/register', data),
+  firebaseSync: (data)  => api.post('/auth/firebase-sync', data),
+  verifyOtp:    (data)  => api.post('/auth/verify-otp', data),
+  resendOtp:    (email) => api.post('/auth/resend-otp', { email }),
   forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
-  resetPassword: (data) => api.post('/auth/reset-password', data),
-  login:     (data)  => api.post('/auth/login', data),
-  getMe:     ()      => api.get('/auth/me'),
-  updateMe:   (data)  => api.patch('/auth/me', data),
+  resetPassword:  (data) => api.post('/auth/reset-password', data),
+  login:        (data)  => api.post('/auth/login', data),
+  getMe:        ()      => api.get('/auth/me'),
+  updateMe:     (data)  => api.patch('/auth/me', data),
 }
 
 export const sessionAPI = {

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { authAPI } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { signInWithEmailAndPassword } from 'firebase/auth'
+import { auth as firebaseAuth } from '../firebase'
 import toast from 'react-hot-toast'
 
 const FEATURES = [
@@ -55,8 +57,42 @@ const Login = () => {
       toast.success(`Welcome back, ${userData?.name || 'user'}`)
       navigate('/dashboard')
     } catch (err) {
-      const errorMsg = err.response?.data?.message || err.message || 'Authentication failed'
-      toast.error(errorMsg)
+      // Fallback: try Firebase Auth if backend login fails
+      try {
+        const userCred = await signInWithEmailAndPassword(firebaseAuth, form.email.toLowerCase(), form.password)
+        const idToken = await userCred.user.getIdToken()
+        let token = idToken
+        let userData = {
+          id: userCred.user.uid,
+          name: userCred.user.displayName || form.email.split('@')[0],
+          email: form.email.toLowerCase(),
+          isPremium: false,
+        }
+
+        try {
+          const syncRes = await authAPI.firebaseSync({
+            email: form.email.toLowerCase(),
+            name: userData.name,
+            idToken,
+          })
+          if (syncRes.data?.token) {
+            token = syncRes.data.token
+            if (syncRes.data?.user) userData = syncRes.data.user
+          }
+        } catch (syncErr) {
+          console.warn('Backend sync deferred, continuing with Firebase credentials:', syncErr.message)
+        }
+
+        login(token, userData)
+        toast.success(`Welcome back, ${userData.name}`)
+        navigate('/dashboard')
+        return
+      } catch (fbErr) {
+        console.warn('Firebase login fallback attempt failed:', fbErr.message)
+        const errorMsg = err.response?.data?.message || err.message || 'Authentication failed'
+        toast.error(errorMsg)
+      }
+    } finally {
       setLoading(false)
     }
   }

@@ -7,6 +7,7 @@ const {
   forgotPassword,
   resetPassword,
   login,
+  firebaseSync,
   getMe,
   updateMe,
 } = require('../controllers/auth.controller');
@@ -17,8 +18,9 @@ router.post('/verify-otp', verifyOtp);
 router.post('/resend-otp', resendOtp);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
-router.post('/login',      login);          // 🆕
-router.get('/me',          protect, getMe); // 🆕 protected
+router.post('/login',          login);
+router.post('/firebase-sync',  firebaseSync);
+router.get('/me',              protect, getMe);
 router.patch('/me',        protect, updateMe);
 
 module.exports = router;

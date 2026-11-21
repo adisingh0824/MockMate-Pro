@@ -1,5 +1,6 @@
 const jwt  = require('jsonwebtoken');
 const User = require('../models/User');
+const { getFirebaseAuth } = require('../config/firebase');
 
 const protect = async (req, res, next) => {
   let token;
@@ -19,33 +20,48 @@ const protect = async (req, res, next) => {
     });
   }
 
+  // 1. Try local MockMate JWT
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    // Support old and new token payload formats: { id }, { userId }, { _id }
     const userId = decoded?.id || decoded?.userId || decoded?._id;
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token payload',
-      });
+    if (userId) {
+      req.user = await User.findById(userId).select('-password');
+      if (req.user) return next();
     }
-
-    req.user = await User.findById(userId).select('-password');
-
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
-    next();
-  } catch (err) {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid or expired token',
-    });
+  } catch (jwtErr) {
+    // If local JWT verification fails, try Firebase ID token below
   }
+
+  // 2. Try Firebase ID Token
+  try {
+    const auth = getFirebaseAuth();
+    if (auth) {
+      const decodedFirebase = await auth.verifyIdToken(token);
+      if (decodedFirebase?.email) {
+        let user = await User.findOne({ email: decodedFirebase.email.toLowerCase() });
+        if (!user) {
+          user = await User.create({
+            _id: decodedFirebase.uid,
+            name: decodedFirebase.name || decodedFirebase.email.split('@')[0],
+            email: decodedFirebase.email.toLowerCase(),
+            isPremium: false,
+          });
+        }
+        if (user) {
+          req.user = user;
+          return next();
+        }
+      }
+    }
+  } catch (fbErr) {
+    // Neither valid
+  }
+
+  return res.status(401).json({
+    success: false,
+    message: 'Invalid or expired token',
+  });
 };
 
 module.exports = protect;

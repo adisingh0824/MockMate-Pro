@@ -415,6 +415,44 @@ exports.login = async (req, res, next) => {
 };
 
 
+// ── POST /api/auth/firebase-sync ──────────────────────────
+exports.firebaseSync = async (req, res, next) => {
+  try {
+    const { email, name } = req.body;
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required',
+      });
+    }
+
+    let user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      user = await User.create({
+        name: (name || '').trim() || email.split('@')[0],
+        email: email.toLowerCase(),
+        isPremium: false,
+      });
+    }
+
+    const token = generateToken(user._id);
+
+    return res.status(200).json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        isPremium: user.isPremium,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
 // ── GET /api/auth/me ──────────────────────────────────────
 exports.getMe = async (req, res, next) => {
   try {

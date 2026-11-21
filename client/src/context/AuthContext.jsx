@@ -6,9 +6,16 @@ import { authAPI } from '../services/api'
 const AuthContext = createContext(null)
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null)
+  const [user, setUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mm_user')
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
   const [token, setToken] = useState(() => localStorage.getItem('mm_token') || null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -21,12 +28,13 @@ export const AuthProvider = ({ children }) => {
         const res = await authAPI.getMe()
         if (res?.data?.user) {
           setUser(res.data.user)
-        } else {
+          localStorage.setItem('mm_user', JSON.stringify(res.data.user))
+        }
+      } catch (err) {
+        // If 401 and no local user exists, log out.
+        if (err.response?.status === 401 && !localStorage.getItem('mm_user')) {
           logout()
         }
-      } catch {
-        // Token might be invalid or expired
-        logout()
       } finally {
         setLoading(false)
       }

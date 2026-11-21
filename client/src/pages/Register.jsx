@@ -51,6 +51,24 @@ const Register = () => {
         password: form.password,
       })
 
+      // If simulated / dev OTP was returned (e.g. Resend sandbox), auto-verify directly so user lands in dashboard
+      if (res.data?.devOtp) {
+        try {
+          const verifyRes = await authAPI.verifyOtp({
+            email: form.email.toLowerCase(),
+            otp: res.data.devOtp,
+          })
+          if (verifyRes.data?.token && verifyRes.data?.user) {
+            login(verifyRes.data.token, verifyRes.data.user)
+            toast.success(`Account created! Welcome, ${verifyRes.data.user.name}`)
+            navigate('/dashboard', { replace: true })
+            return
+          }
+        } catch (autoVerifyErr) {
+          console.warn('Auto-verification skipped, navigating to verification screen:', autoVerifyErr.message)
+        }
+      }
+
       toast.success(res.data?.message || 'Verification code dispatched')
       navigate('/verify-otp', {
         state: {
@@ -59,8 +77,7 @@ const Register = () => {
         },
       })
     } catch (err) {
-      // 2. If backend email dispatch fails (e.g. Resend 403 unverified domain),
-      // create the account directly via Firebase Authentication
+      // 2. If backend email dispatch fails, create the account directly via Firebase Authentication
       console.warn('Backend register failed, activating Firebase Auth fallback:', err.message)
 
       try {
@@ -79,14 +96,30 @@ const Register = () => {
         }
 
         const idToken = await userCred.user.getIdToken()
-        const userData = {
+        let activeToken = idToken
+        let userData = {
           id: userCred.user.uid,
           name: form.name.trim() || userCred.user.displayName || 'Candidate',
           email: form.email.toLowerCase(),
           isPremium: false,
         }
 
-        login(idToken, userData)
+        // Synchronize with backend to acquire native MockMate JWT
+        try {
+          const syncRes = await authAPI.firebaseSync({
+            email: form.email.toLowerCase(),
+            name: userData.name,
+            idToken,
+          })
+          if (syncRes.data?.token) {
+            activeToken = syncRes.data.token
+            if (syncRes.data?.user) userData = syncRes.data.user
+          }
+        } catch (syncErr) {
+          console.warn('Backend sync deferred, continuing with Firebase credentials:', syncErr.message)
+        }
+
+        login(activeToken, userData)
         toast.success(`Account created successfully! Welcome, ${userData.name}`)
         navigate('/dashboard', { replace: true })
       } catch (fbErr) {
