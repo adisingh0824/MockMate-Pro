@@ -1,32 +1,5 @@
-const mongoose = require('mongoose');
+const { createFirestoreModel } = require('../config/firestoreAdapter');
 
-const RoleSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: [true, 'Role name is required'],
-      trim: true,
-      unique: true,
-    },
-    slug: {
-      type: String,
-      required: [true, 'Role slug is required'],
-      trim: true,
-      unique: true,
-      lowercase: true,
-      match: [/^[a-z0-9-]+$/, 'Slug must contain only lowercase letters, numbers and hyphens'],
-    },
-    isActive: {
-      type: Boolean,
-      default: true,
-      index: true,
-    },
-    sortOrder: {
-      type: Number,
-      default: 0,
-    },
-  },
-  { timestamps: true }
-);
+const Role = createFirestoreModel('roles');
 
-module.exports = mongoose.model('Role', RoleSchema);
+module.exports = Role;

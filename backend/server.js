@@ -3,7 +3,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 dotenv.config();
 
-const connectDB = require('./config/db');
+const { initFirebase } = require('./config/firebase');
 const { APP_CONSTANTS } = require('./utils/constants');
 
 const app = express();
@@ -30,10 +30,10 @@ app.use(require('./middleware/error.middleware'));
 
 const startServer = async () => {
   try {
-    await connectDB();
-    console.log('✅ Database connection established before server start');
+    await initFirebase();
+    console.log('🔥 Firebase Cloud Firestore database connected');
   } catch (e) {
-    console.error('❌ Failed to establish database connection:', e.message);
+    console.error('❌ Failed to establish Firebase connection:', e.message);
   }
 
   const PORT = process.env.PORT || 5800;

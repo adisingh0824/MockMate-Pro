@@ -133,13 +133,35 @@ exports.verifyOtp = async (req, res, next) => {
       });
     }
 
-    // ✅ OTP correct — create or retrieve user account safely
+    // ✅ OTP correct — create or retrieve user account safely in Firestore & Firebase Auth
     let user = await User.findOne({ email: otpRecord.email });
     if (!user) {
+      let firebaseUid = null;
+      try {
+        const { getFirebaseAuth } = require('../config/firebase');
+        const fbAuth = getFirebaseAuth();
+        try {
+          const fbUser = await fbAuth.getUserByEmail(otpRecord.email);
+          firebaseUid = fbUser.uid;
+        } catch (e) {
+          if (e.code === 'auth/user-not-found') {
+            const newFbUser = await fbAuth.createUser({
+              email: otpRecord.email,
+              displayName: otpRecord.name,
+            });
+            firebaseUid = newFbUser.uid;
+          }
+        }
+      } catch (fbErr) {
+        // Firebase Auth sync is non-blocking
+      }
+
       user = await User.create({
+        ...(firebaseUid ? { _id: firebaseUid } : {}),
         name:     otpRecord.name,
         email:    otpRecord.email,
         password: otpRecord.password,  // already hashed
+        isPremium: false,
       });
     }
 

@@ -3,9 +3,8 @@ const path = require('path');
 const dotenv = require('dotenv');
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-const connectDB = require('../config/db');
+const { initFirebase, getDb } = require('../config/firebase');
 const { app } = require('../server');
-const mongoose = require('mongoose');
 
 // Simple JSON request helper
 const makeRequest = (port, options, body = null) => {
@@ -59,8 +58,8 @@ const runSuite = async () => {
   };
 
   // 1. Establish DB Connection
-  await connectDB();
-  assert(mongoose.connection.readyState === 1, 'MongoDB connection established');
+  await initFirebase();
+  assert(Boolean(getDb()), 'Firebase Cloud Firestore connection established');
 
   // 2. Start HTTP server
   const server = http.createServer(app);
@@ -262,7 +261,6 @@ const runSuite = async () => {
     failed++;
   } finally {
     server.close();
-    await mongoose.disconnect();
   }
 
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

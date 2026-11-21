@@ -196,8 +196,8 @@ exports.submitSession = async (req, res, next) => {
 
     let correctCount = 0;
 
-    session.questions = session.questions.map((questionDoc, idx) => {
-      const question = questionDoc.toObject();
+    session.questions = (session.questions || []).map((questionDoc, idx) => {
+      const question = typeof questionDoc?.toObject === 'function' ? questionDoc.toObject() : (questionDoc || {});
       const fallbackId = question.questionId || `q${idx + 1}`;
       const incomingAnswer = answerMap.get(String(fallbackId)) || '';
       const selected = toAnswerLetter(incomingAnswer);

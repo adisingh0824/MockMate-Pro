@@ -7,3 +7,8 @@ dist/
 
 # Persistent dev database files (auto-created by mongodb-memory-server with dbPath)
 data/db/
+
+# Firebase credentials
+config/firebase-service-account.json
+firebase-service-account.json
+serviceAccountKey.json

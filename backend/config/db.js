@@ -213,6 +213,17 @@ const connectDB = async () => {
       const dbPath = path.resolve(__dirname, '../data/db');
       if (!fs.existsSync(dbPath)) fs.mkdirSync(dbPath, { recursive: true });
 
+      // Remove stale lock file left by a previous ungraceful shutdown (0-byte lock).
+      // A live mongod holds a non-empty lock; 0 bytes means the previous process died.
+      const lockFile = path.join(dbPath, 'mongod.lock');
+      if (fs.existsSync(lockFile)) {
+        const lockSize = fs.statSync(lockFile).size;
+        if (lockSize === 0) {
+          fs.unlinkSync(lockFile);
+          console.log('🔓 Removed stale mongod.lock (previous process ended ungracefully)');
+        }
+      }
+
       if (!mongoMemoryServerInstance) {
         mongoMemoryServerInstance = await MongoMemoryServer.create({
           instance: {
