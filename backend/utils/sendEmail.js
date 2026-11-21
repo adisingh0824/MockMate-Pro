@@ -21,12 +21,11 @@ const parseEmailFrom = (fromValue = '') => {
 };
 
 const buildFromAddress = (sender) => {
-  if (!sender?.email) return 'MockMate Pro <onboarding@resend.dev>';
-  // Resend rejects unverified domains (like smartmeeter.online or personal gmail/yahoo)
-  if (sender.email.includes('smartmeeter.online') || sender.email.includes('@gmail.com') || sender.email.includes('@yahoo.com')) {
-    return 'MockMate Pro <onboarding@resend.dev>';
+  // Always use Resend's default onboarding sender unless a custom domain is explicitly flagged as verified
+  if (process.env.RESEND_VERIFIED_DOMAIN === 'true' && sender?.email && !sender.email.includes('@gmail.com') && !sender.email.includes('@yahoo.com')) {
+    return sender.name ? `${sender.name} <${sender.email}>` : sender.email;
   }
-  return sender.name ? `${sender.name} <${sender.email}>` : sender.email;
+  return 'MockMate Pro <onboarding@resend.dev>';
 };
 
 const sendWithResend = (payload) =>
