@@ -187,6 +187,13 @@ const runSuite = async () => {
     }, { role: 'Full Stack Developer', difficulty: 'impossible', count: 5 });
     assert(invalidDifficultyRes.status === 400, 'POST /api/sessions/start (rejects unknown difficulty)');
 
+    const freeCompanySessionRes = await makeRequest(port, {
+      path: '/api/sessions/start',
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    }, { role: 'Software Engineer', company: 'Google', difficulty: 'medium', count: 5 });
+    assert(freeCompanySessionRes.status === 403, 'POST /api/sessions/start (protects premium company tracks)');
+
     const invalidTypeRes = await makeRequest(port, {
       path: '/api/sessions/start',
       method: 'POST',
