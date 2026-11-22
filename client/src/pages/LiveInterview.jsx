@@ -247,24 +247,39 @@ const LiveInterview = () => {
     if (!session || !firstQuestion) {
       return;
     }
-    navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(() => {
-        setMicAllowed(true);
-        setCurrentQ(firstQuestion);
-        setHistory((history) => history.length ? history : [{ role: 'assistant', content: firstQuestion }]);
-        setUiState(STATES.AI_SPEAK);
-        speakText(firstQuestion, () => {
-          setUiState(STATES.LISTENING);
-          startListening();
-        });
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast.error('Your browser does not support microphone access.');
+      setMicAllowed(false);
+      setCurrentQ(firstQuestion);
+      setHistory((history) => history.length ? history : [{ role: 'assistant', content: firstQuestion }]);
+      setUiState(STATES.LISTENING);
+    } else {
+      navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       })
-      .catch(() => {
-        toast.error('Microphone access denied. Please allow mic in browser settings.');
-        setMicAllowed(false);
-        setCurrentQ(firstQuestion);
-        setHistory((history) => history.length ? history : [{ role: 'assistant', content: firstQuestion }]);
-        setUiState(STATES.LISTENING);
-      });
+        .then(() => {
+          setMicAllowed(true);
+          setCurrentQ(firstQuestion);
+          setHistory((history) => history.length ? history : [{ role: 'assistant', content: firstQuestion }]);
+          setUiState(STATES.AI_SPEAK);
+          speakText(firstQuestion, () => {
+            setUiState(STATES.LISTENING);
+            startListening();
+          });
+        })
+        .catch((e) => {
+          console.error('Microphone permission error:', e);
+          toast.error('Microphone access denied. Please allow mic in browser settings.');
+          setMicAllowed(false);
+          setCurrentQ(firstQuestion);
+          setHistory((history) => history.length ? history : [{ role: 'assistant', content: firstQuestion }]);
+          setUiState(STATES.LISTENING);
+        });
+    }
 
     return () => {
       window.speechSynthesis.cancel();

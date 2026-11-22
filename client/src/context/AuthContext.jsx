@@ -65,7 +65,6 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('mm_token')
     localStorage.removeItem('token')
-    localStorage.removeItem('token')
     localStorage.removeItem('mm_user')
     import('firebase/auth')
       .then(({ signOut }) => import('../firebase').then(({ auth }) => signOut(auth)))
