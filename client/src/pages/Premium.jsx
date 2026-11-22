@@ -62,6 +62,8 @@ const Premium = () => {
       return
     }
 
+    let checkoutOpened = false
+    let paymentCallbackReceived = false
     try {
       setProcessingPlanId(plan.planId)
 
@@ -99,6 +101,7 @@ const Premium = () => {
           color: '#18181b',
         },
         handler: async (response) => {
+          paymentCallbackReceived = true
           try {
             if (!response?.razorpay_order_id || !response?.razorpay_payment_id || !response?.razorpay_signature) {
               toast.error('Payment response missing verification fields.')
@@ -125,10 +128,13 @@ const Premium = () => {
             }
           } catch (verifyErr) {
             toast.error(verifyErr?.response?.data?.message || 'Payment verification failed.')
+          } finally {
+            setProcessingPlanId('')
           }
         },
         modal: {
           ondismiss: async () => {
+            if (paymentCallbackReceived) return
             try {
               if (transactionId) {
                 await paymentAPI.cancelTransaction(transactionId)
@@ -136,6 +142,8 @@ const Premium = () => {
               toast('Payment flow closed')
             } catch {
               toast('Payment flow closed')
+            } finally {
+              setProcessingPlanId('')
             }
           },
         },
@@ -146,10 +154,11 @@ const Premium = () => {
         toast.error(response?.error?.description || 'Payment did not complete.')
       })
       razorpay.open()
+      checkoutOpened = true
     } catch (err) {
       toast.error(err.response?.data?.message || err.message || 'Payment initiation failed')
     } finally {
-      setProcessingPlanId('')
+      if (!checkoutOpened) setProcessingPlanId('')
     }
   }
 
