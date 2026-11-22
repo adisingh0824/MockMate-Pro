@@ -15,7 +15,7 @@ export const AuthProvider = ({ children }) => {
     }
   })
   const [token, setToken] = useState(() => localStorage.getItem('mm_token') || localStorage.getItem('token') || null)
-  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem('mm_token')))
+  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem('mm_token') || localStorage.getItem('token')))
 
   useEffect(() => {
     let active = true

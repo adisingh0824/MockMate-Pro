@@ -52,7 +52,8 @@ const Login = () => {
       try {
         login(token, userData)
       } catch {
-        localStorage.setItem('mm_token', token)
+        localStorage.setItem('mm_token', token);
+    localStorage.setItem('token', token)
         if (userData) localStorage.setItem('mm_user', JSON.stringify(userData))
       }
 

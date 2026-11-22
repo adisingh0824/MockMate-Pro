@@ -109,7 +109,10 @@ export const interviewAPI = {
       return await api.post('/interview/start', data);
     } finally {
       // Restore token
-      if (stored) localStorage.setItem('mm_token', stored);
+      if (stored) {
+        localStorage.setItem('mm_token', stored);
+        localStorage.setItem('token', stored);
+      }
     }
   },
   respond: (id, data) => api.post(`/interview/${id}/respond`, data),
