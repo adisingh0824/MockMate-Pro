@@ -110,7 +110,9 @@ const Register = () => {
           await sendEmailVerification(userCred.user)
           await signOut(firebaseAuth)
           toast.success('Check your email to verify your address, then sign in to continue.')
-          navigate('/login')
+          navigate('/login', {
+            state: { notice: 'Your account was created. Open the verification email we sent, click its link, then return here and sign in.' },
+          })
           return
         }
 
@@ -154,7 +156,9 @@ const Register = () => {
               await sendEmailVerification(loginCred.user)
               await signOut(firebaseAuth)
               toast.success('Check your email to verify your address, then sign in to continue.')
-              navigate('/login')
+              navigate('/login', {
+                state: { notice: 'Your account exists but your email is not verified yet. Open the verification email we sent, click its link, then return here and sign in.' },
+              })
               return
             }
             const idToken = await loginCred.user.getIdToken()

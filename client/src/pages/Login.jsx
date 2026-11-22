@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { authAPI } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import { sendEmailVerification, signInWithEmailAndPassword, signOut } from 'firebase/auth'
@@ -21,11 +21,13 @@ const CheckIcon = () => (
 
 const Login = () => {
   const navigate = useNavigate()
+  const location = useLocation()
   const { login } = useAuth()
   const [form, setForm]       = useState({ email: '', password: '' })
   const [errors, setErrors]   = useState({})
   const [loading, setLoading] = useState(false)
   const [showPw, setShowPw]   = useState(false)
+  const [notice, setNotice] = useState(location.state?.notice || '')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -59,14 +61,17 @@ const Login = () => {
     } catch (err) {
       // Fallback: try Firebase Auth if backend login fails
       try {
-        const userCred = await signInWithEmailAndPassword(firebaseAuth, form.email.toLowerCase(), form.password)
+        const userCred = await signInWithEmailAndPassword(firebaseAuth, form.email.trim().toLowerCase(), form.password)
+        // Verification can happen in another browser tab. Refresh Firebase's cached
+        // user record before deciding whether to keep the user out.
+        await userCred.user.reload()
         if (!userCred.user.emailVerified) {
           await sendEmailVerification(userCred.user)
           await signOut(firebaseAuth)
-          toast.error('Please verify your email address using the link we sent, then sign in again.')
+          setNotice('Your email address is not verified yet. Open the verification email we sent, click its link, then return here and sign in again. We sent a fresh link just now.')
           return
         }
-        const idToken = await userCred.user.getIdToken()
+        const idToken = await userCred.user.getIdToken(true)
         let token = idToken
         let userData = {
           id: userCred.user.uid,
@@ -156,6 +161,12 @@ const Login = () => {
 
           <h2 className="text-xl font-bold text-stone-950 mb-1">Sign in to your account</h2>
           <p className="text-xs text-stone-500 mb-6">Enter your credentials to continue to your dashboard.</p>
+
+          {notice && (
+            <div role="status" className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs leading-relaxed text-amber-900">
+              {notice}
+            </div>
+          )}
 
           {/* Demo credentials are only included in development builds. */}
           {import.meta.env.DEV && <div
