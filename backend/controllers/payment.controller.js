@@ -95,15 +95,8 @@ exports.verifyPayment = async (req, res, next) => {
       planId,
     } = req.body;
 
-    console.log('🔍 Verifying payment:', {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature: razorpay_signature?.substring(0, 10) + '...',
-      planId,
-    });
-
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !planId) {
-      console.error('❌ Missing required fields');
+    if (![razorpay_order_id, razorpay_payment_id, razorpay_signature, planId]
+      .every((value) => typeof value === 'string' && value.trim())) {
       return res.status(400).json({
         success: false,
         message: 'Missing payment verification fields',
@@ -120,58 +113,76 @@ exports.verifyPayment = async (req, res, next) => {
     if (transaction.planId !== planId) {
       return res.status(400).json({ success: false, message: 'Payment order does not match the selected plan' });
     }
+
+    if (transaction.status === 'success') {
+      if (transaction.razorpayPaymentId !== razorpay_payment_id) {
+        return res.status(409).json({ success: false, message: 'This order was already completed with another payment' });
+      }
+      const [user, plan] = await Promise.all([
+        User.findById(req.user.id),
+        Plan.findOne({ planId, isActive: true }).select('planId name price period'),
+      ]);
+      if (!user) return res.status(404).json({ success: false, message: 'Account not found' });
+      return res.status(200).json({
+        success: true,
+        message: 'Payment already verified',
+        payment: {
+          orderId: razorpay_order_id,
+          paymentId: razorpay_payment_id,
+          planId,
+          transactionId: transaction._id,
+        },
+        plan,
+        user: { name: user.name, email: user.email, isPremium: Boolean(user.isPremium) },
+      });
+    }
+    if (transaction.status !== 'pending') {
+      return res.status(409).json({ success: false, message: 'This payment order is no longer pending' });
+    }
+
     const secret = process.env.RAZORPAY_KEY_SECRET;
     if (!secret) {
-      console.error('❌ Razorpay secret key missing');
-      return res.status(400).json({
+      return res.status(503).json({
         success: false,
-        message: 'Razorpay secret key is missing',
+        message: 'Payment verification is unavailable because Razorpay is not configured',
       });
     }
 
     const expectedSignature = crypto
       .createHmac('sha256', secret)
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest('hex');
+      .digest();
+    const receivedSignature = Buffer.from(razorpay_signature, 'hex');
 
-    console.log('🔐 Signature comparison:', {
-      expected: expectedSignature.substring(0, 10) + '...',
-      received: razorpay_signature.substring(0, 10) + '...',
-      match: expectedSignature === razorpay_signature
-    });
-
-    if (expectedSignature !== razorpay_signature) {
-      console.error('❌ Invalid signature');
-      // Update transaction as failed
-      await Transaction.findOneAndUpdate(
-        { razorpayOrderId: razorpay_order_id },
-        { 
-          status: 'failed',
-          errorMessage: 'Invalid payment signature'
-        }
-      );
+    if (receivedSignature.length !== expectedSignature.length || !crypto.timingSafeEqual(expectedSignature, receivedSignature)) {
       return res.status(400).json({ success: false, message: 'Invalid payment signature' });
+    }
+
+    // A valid checkout signature proves the callback came from Razorpay, but
+    // only the payment resource confirms this order was actually captured.
+    const razorpay = getRazorpay();
+    const payment = await razorpay.payments.fetch(razorpay_payment_id);
+    if (
+      payment.order_id !== razorpay_order_id ||
+      Number(payment.amount) !== Number(transaction.amount) ||
+      String(payment.currency).toUpperCase() !== String(transaction.currency || 'INR').toUpperCase() ||
+      payment.status !== 'captured' ||
+      payment.captured !== true
+    ) {
+      return res.status(409).json({
+        success: false,
+        message: 'Razorpay has not confirmed a captured payment for this order and amount',
+      });
     }
 
     const plan = await Plan.findOne({ planId, isActive: true }).select('planId name price period');
     if (!plan) {
-      console.error('❌ Plan not found');
-      // Update transaction as failed
-      await Transaction.findOneAndUpdate(
-        { razorpayOrderId: razorpay_order_id },
-        { 
-          status: 'failed',
-          errorMessage: 'Plan not found'
-        }
-      );
       return res.status(404).json({ success: false, message: 'Plan not found' });
     }
 
     if (transaction.amount !== parseAmountInRupees(plan.price)) {
       return res.status(400).json({ success: false, message: 'Payment amount does not match the selected plan' });
     }
-
-    console.log('✅ Plan found:', plan.planId);
 
     const user = await User.findByIdAndUpdate(
       req.user.id,
@@ -182,15 +193,11 @@ exports.verifyPayment = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Account not found' });
     }
 
-    console.log('✅ User updated to premium');
-
     // Update transaction as success
     transaction.razorpayPaymentId = razorpay_payment_id;
     transaction.razorpaySignature = razorpay_signature;
     transaction.status = 'success';
     await transaction.save();
-
-    console.log('✅ Transaction updated:', transaction?._id);
 
     res.status(200).json({
       success: true,
