@@ -14,7 +14,7 @@ export const AuthProvider = ({ children }) => {
       return null
     }
   })
-  const [token, setToken] = useState(() => localStorage.getItem('mm_token') || null)
+  const [token, setToken] = useState(() => localStorage.getItem('mm_token') || localStorage.getItem('token') || null)
   const [loading, setLoading] = useState(() => Boolean(localStorage.getItem('mm_token')))
 
   useEffect(() => {
@@ -52,7 +52,8 @@ export const AuthProvider = ({ children }) => {
     if (!newToken) {
       throw new Error('Token is required for login')
     }
-    localStorage.setItem('mm_token', newToken)
+    localStorage.setItem('mm_token', newToken);
+    localStorage.setItem('token', newToken)
     if (userData) {
       localStorage.setItem('mm_user', JSON.stringify(userData))
       setUser(userData)
