@@ -103,26 +103,45 @@ const toAnswerLetter = (answerValue = '') => {
   return match ? match[1].toUpperCase() : trimmed.toUpperCase();
 };
 
+const isLiveInterviewSession = (session) => Boolean(
+  session?.type === 'interview' &&
+  (Array.isArray(session.conversationHistory) || session.firstQuestion || session.currentQuestion)
+);
+
 // POST /api/sessions/start
 // In exports.startSession — change this block:
 exports.startSession = async (req, res, next) => {
   try {
-    const { role, difficulty, count, durationMinutes, type, company } = req.body; // ← added company
+    const { role, difficulty, count, durationMinutes, type, company } = req.body;
 
-    if (!role || !difficulty)
-      return res.status(400).json({ success: false, message: "Role and difficulty are required" });
+    const safeRole = typeof role === 'string' ? role.trim().slice(0, 100) : '';
+    const safeDifficulty = typeof difficulty === 'string' ? difficulty.trim().toLowerCase() : '';
+    if (!safeRole || !safeDifficulty) {
+      return res.status(400).json({ success: false, message: 'Role and difficulty are required' });
+    }
+    if (!['easy', 'medium', 'hard'].includes(safeDifficulty)) {
+      return res.status(400).json({ success: false, message: 'Difficulty must be easy, medium, or hard' });
+    }
+    if (type && !['practice', 'interview'].includes(type)) {
+      return res.status(400).json({ success: false, message: 'Session type must be practice' });
+    }
 
-    const safeCount    = Math.max(1, Math.min(Number(count) || 5, 30));
-    const safeDuration = Number(durationMinutes) || 20;
-    const safeType     = type || "practice";
-    const safeCompany  = company ? String(company).trim() : null; // ← NEW
+    const requestedCount = Number(count);
+    const requestedDuration = Number(durationMinutes);
+    const safeCount = Math.max(1, Math.min(Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : 5, 30));
+    const safeDuration = Math.max(1, Math.min(Number.isFinite(requestedDuration) && requestedDuration > 0 ? Math.floor(requestedDuration) : 20, 180));
+    // Older clients used `interview` for this multiple-choice endpoint. Keep
+    // accepting that value, but persist it as practice so resume/history use
+    // the matching MCQ flow. Live simulations use /api/interview/start.
+    const safeType = 'practice';
+    const safeCompany = company ? String(company).trim().slice(0, 120) : null;
 
     const generatedQuestions = await generateMcqQuestions(
-      role, difficulty, safeCount, safeCompany   // ← pass company to AI
+      safeRole, safeDifficulty, safeCount, safeCompany
     );
 
     const session = await Session.create({
-      user: req.user.id, role, difficulty,
+      user: req.user.id, role: safeRole, difficulty: safeDifficulty,
       count: safeCount, durationMinutes: safeDuration,
       type: safeType,
       company: safeCompany,  // ← save to DB
@@ -150,9 +169,11 @@ exports.getHistory = async (req, res, next) => {
       .limit(20);
 
     const safeSessions = sessions.map((session) => {
-      if (session.completedAt || !Array.isArray(session.questions)) return session;
+      const flowType = session.type === 'interview' && !isLiveInterviewSession(session) ? 'practice' : session.type;
+      if (session.completedAt || !Array.isArray(session.questions)) return { ...session, type: flowType };
       return {
         ...session,
+        type: flowType,
         questions: session.questions.map(({ correctAnswer, explanation, ...question }) => question),
       };
     });
@@ -173,7 +194,10 @@ exports.getSession = async (req, res, next) => {
     if (!session) {
       return res.status(404).json({ success: false, message: 'Session not found' });
     }
-    const responseSession = { ...session };
+    const responseSession = {
+      ...session,
+      type: session.type === 'interview' && !isLiveInterviewSession(session) ? 'practice' : session.type,
+    };
     if (!session.completedAt && Array.isArray(session.questions)) {
       responseSession.questions = session.questions.map(({ correctAnswer, explanation, ...question }) => question);
     }
@@ -196,7 +220,7 @@ exports.saveSessionAnswers = async (req, res, next) => {
     if (session.completedAt) {
       return res.status(409).json({ success: false, message: 'This session is already complete' });
     }
-    if (session.type === 'interview') {
+    if (isLiveInterviewSession(session)) {
       return res.status(400).json({ success: false, message: 'Interview answers are saved through the interview flow' });
     }
 

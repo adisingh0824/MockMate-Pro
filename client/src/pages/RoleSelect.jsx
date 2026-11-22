@@ -61,9 +61,9 @@ const RoleSelect = () => {
         role,
         difficulty: diff,
         count: count,
-        type: 'interview',
+        type: 'practice',
       })
-      toast.success('Interview session created')
+      toast.success('Practice session created')
       navigate(`/session/${res.data.session.id}`, {
         state: {
           session: res.data.session,

@@ -180,6 +180,28 @@ const runSuite = async () => {
     });
     assert(configRes.status === 200 && configRes.data?.config?.difficulties?.length > 0, 'GET /api/sessions/config');
 
+    const invalidDifficultyRes = await makeRequest(port, {
+      path: '/api/sessions/start',
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    }, { role: 'Full Stack Developer', difficulty: 'impossible', count: 5 });
+    assert(invalidDifficultyRes.status === 400, 'POST /api/sessions/start (rejects unknown difficulty)');
+
+    const invalidTypeRes = await makeRequest(port, {
+      path: '/api/sessions/start',
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    }, { role: 'Full Stack Developer', difficulty: 'medium', count: 5, type: 'unsupported' });
+    assert(invalidTypeRes.status === 400, 'POST /api/sessions/start (rejects unknown session type)');
+
+    const legacyTypeRes = await makeRequest(port, {
+      path: '/api/sessions/start',
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    }, { role: 'Backend Developer', difficulty: 'easy', count: 2, type: 'interview' });
+    assert(legacyTypeRes.status === 201 && legacyTypeRes.data?.session?.type === 'practice', 'POST /api/sessions/start (normalizes legacy MCQ interview type)');
+    if (legacyTypeRes.data?.session?.id) cleanup.sessionIds.push(legacyTypeRes.data.session.id);
+
     // 8. Sessions: Start Practice Session (with count: 5)
     const startSessionRes = await makeRequest(port, {
       path: '/api/sessions/start',
