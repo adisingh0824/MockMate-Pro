@@ -36,7 +36,7 @@ const getFirebaseUser = async () => {
 }
 
 api.interceptors.request.use(async (config) => {
-  let token = localStorage.getItem('mm_token')
+  let token = localStorage.getItem('mm_token') || localStorage.getItem('token')
   if (token && isFirebaseIdToken(token)) {
     try {
       const firebaseUser = await getFirebaseUser()
@@ -99,9 +99,12 @@ export const paymentAPI = {
 
 export const interviewAPI = {
   start: async (data) => {
-    const stored = localStorage.getItem('mm_token');
+    const stored = localStorage.getItem('mm_token') || localStorage.getItem('token');
     // Temporarily remove token to make endpoint public
-    if (stored) localStorage.removeItem('mm_token');
+    if (stored) {
+      localStorage.removeItem('mm_token');
+      localStorage.removeItem('token');
+    }
     try {
       return await api.post('/interview/start', data);
     } finally {
