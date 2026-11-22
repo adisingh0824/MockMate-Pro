@@ -36,7 +36,7 @@ const getFirebaseUser = async () => {
 }
 
 api.interceptors.request.use(async (config) => {
-  let token = localStorage.getItem('mm_token') || localStorage.getItem('token')
+  let token = localStorage.getItem('mm_token') || localStorage.getItem('token') || localStorage.getItem('token')
   if (token && isFirebaseIdToken(token)) {
     try {
       const firebaseUser = await getFirebaseUser()
