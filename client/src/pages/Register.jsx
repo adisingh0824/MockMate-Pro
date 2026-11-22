@@ -77,18 +77,19 @@ const Register = () => {
         },
       })
     } catch (err) {
-      if (err.response?.status === 503) {
-        toast.error(err.response?.data?.message || 'Email delivery is unavailable. Please try again later.')
+      const backendMessage = err.response?.data?.message || ''
+      const emailProviderFailure =
+        err.response?.status === 503 ||
+        /resend|email delivery|verified domain|domain.{0,40}(?:not verified|unverified)/i.test(backendMessage)
+
+      if (err.response && !emailProviderFailure) {
+        toast.error(backendMessage || 'Registration failed. Please try again.')
         return
       }
 
-      if (err.response) {
-        toast.error(err.response.data?.message || 'Registration failed. Please try again.')
-        return
-      }
-
-      // If the backend cannot be reached, Firebase can still establish the identity.
-      console.warn('Backend register failed, activating Firebase Auth fallback:', err.message)
+      // Firebase email verification keeps registration usable if the backend
+      // is offline or its configured mail sender has not been verified yet.
+      console.warn('Backend registration unavailable; activating Firebase Auth fallback:', err.message)
 
       try {
         const userCred = await createUserWithEmailAndPassword(
@@ -189,7 +190,7 @@ const Register = () => {
             navigate('/login')
           }
         } else {
-          const msg = err.response?.data?.message || fbErr.message || 'Registration failed'
+          const msg = fbErr.message || backendMessage || 'Registration failed'
           toast.error(msg)
         }
       }
