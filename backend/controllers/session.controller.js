@@ -1,5 +1,6 @@
 const Role = require('../models/Role');
 const InterviewConfig = require('../models/InterviewConfig');
+const { hasActivePremium } = require('../utils/premium');
 
 const DEFAULT_ROLES = [
   { name: 'Frontend Developer', slug: 'frontend-developer', sortOrder: 1 },
@@ -136,15 +137,11 @@ exports.startSession = async (req, res, next) => {
     const safeType = 'practice';
     const safeCompany = company ? (String(company).trim().slice(0, 120) || null) : null;
 
-    if (safeCompany) {
-      const expiresAt = req.user.premiumExpiresAt ? new Date(req.user.premiumExpiresAt).getTime() : Infinity;
-      const premiumActive = Boolean(req.user.isPremium) && expiresAt > Date.now();
-      if (!premiumActive) {
-        return res.status(403).json({
-          success: false,
-          message: 'Company-targeted practice requires an active premium plan',
-        });
-      }
+    if (safeCompany && !hasActivePremium(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Company-targeted practice requires an active premium plan',
+      });
     }
 
     const generatedQuestions = await generateMcqQuestions(

@@ -9,6 +9,7 @@ const User           = require('../models/User');
 const Otp            = require('../models/Otp');
 const { sendOtpEmail } = require('../utils/sendEmail');
 const { AUTH_CONSTANTS, APP_CONSTANTS } = require('../utils/constants');
+const { hasActivePremium } = require('../utils/premium');
 
 
 // Helper — generate 6-digit OTP
@@ -570,7 +571,9 @@ exports.getMe = async (req, res, next) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        isPremium: user.isPremium,
+        isPremium: hasActivePremium(user),
+        premiumPlanId: user.premiumPlanId || null,
+        premiumExpiresAt: user.premiumExpiresAt || null,
         createdAt: user.createdAt,
       },
     });

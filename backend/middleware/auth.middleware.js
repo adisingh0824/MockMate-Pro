@@ -1,6 +1,15 @@
 const jwt  = require('jsonwebtoken');
 const User = require('../models/User');
 const { getFirebaseAuth } = require('../config/firebase');
+const { hasActivePremium } = require('../utils/premium');
+
+const expirePremiumIfNeeded = async (user) => {
+  if (user?.isPremium && !hasActivePremium(user)) {
+    return await User.findByIdAndUpdate(user.id || user._id, { isPremium: false }, { returnDocument: 'after' })
+      || { ...user, isPremium: false };
+  }
+  return user;
+};
 
 const protect = async (req, res, next) => {
   let token;
@@ -31,6 +40,7 @@ const protect = async (req, res, next) => {
         if (process.env.NODE_ENV === 'production' && req.user.email?.toLowerCase() === 'testuser@gmail.com') {
           return res.status(401).json({ success: false, message: 'This development account is unavailable' });
         }
+        req.user = await expirePremiumIfNeeded(req.user);
         return next();
       }
     }
@@ -60,7 +70,7 @@ const protect = async (req, res, next) => {
           });
         }
         if (user) {
-          req.user = user;
+          req.user = await expirePremiumIfNeeded(user);
           return next();
         }
       }

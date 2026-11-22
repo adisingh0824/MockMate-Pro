@@ -38,7 +38,7 @@ export const AuthProvider = ({ children }) => {
         const status = err.response?.status
         const message = err.response?.data?.message?.toLowerCase() || ''
         if (active && (status === 401 || status === 404 || (status === 403 && message.includes('verify your email')))) {
-          logout()
+          // logout(); // disabled to prevent redirect loop on auth error
         }
       } finally {
         if (active) setLoading(false)

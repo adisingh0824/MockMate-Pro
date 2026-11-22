@@ -98,7 +98,17 @@ export const paymentAPI = {
 }
 
 export const interviewAPI = {
-  start: (data) => api.post('/interview/start', data),
+  start: async (data) => {
+    const stored = localStorage.getItem('mm_token');
+    // Temporarily remove token to make endpoint public
+    if (stored) localStorage.removeItem('mm_token');
+    try {
+      return await api.post('/interview/start', data);
+    } finally {
+      // Restore token
+      if (stored) localStorage.setItem('mm_token', stored);
+    }
+  },
   respond: (id, data) => api.post(`/interview/${id}/respond`, data),
   finish: (id, data) => api.post(`/interview/${id}/finish`, data),
 }

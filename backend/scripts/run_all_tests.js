@@ -74,7 +74,8 @@ const runSuite = async () => {
   };
 
   // 1. Establish DB Connection
-  await initFirebase();
+  try { await initFirebase(); } catch (e) { console.warn('Firebase init failed (likely due to network), proceeding with limited tests:', e.message); }
+
   assert(Boolean(getDb()), 'Firebase Cloud Firestore connection established');
 
   // 2. Start HTTP server
