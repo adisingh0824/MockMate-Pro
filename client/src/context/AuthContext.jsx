@@ -15,32 +15,37 @@ export const AuthProvider = ({ children }) => {
     }
   })
   const [token, setToken] = useState(() => localStorage.getItem('mm_token') || null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem('mm_token')))
 
   useEffect(() => {
+    let active = true
     const fetchUser = async () => {
       if (!token) {
-        setUser(null)
-        setLoading(false)
+        if (active) {
+          setUser(null)
+          setLoading(false)
+        }
         return
       }
+      setLoading(true)
       try {
         const res = await authAPI.getMe()
-        if (res?.data?.user) {
+        if (active && res?.data?.user) {
           setUser(res.data.user)
           localStorage.setItem('mm_user', JSON.stringify(res.data.user))
         }
       } catch (err) {
         const status = err.response?.status
         const message = err.response?.data?.message?.toLowerCase() || ''
-        if (status === 401 || (status === 403 && message.includes('verify your email'))) {
+        if (active && (status === 401 || status === 404 || (status === 403 && message.includes('verify your email')))) {
           logout()
         }
       } finally {
-        setLoading(false)
+        if (active) setLoading(false)
       }
     }
     fetchUser()
+    return () => { active = false }
   }, [token])
 
   const login = (newToken, userData) => {
@@ -52,6 +57,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('mm_user', JSON.stringify(userData))
       setUser(userData)
     }
+    setLoading(true)
     setToken(newToken)
   }
 
@@ -63,6 +69,7 @@ export const AuthProvider = ({ children }) => {
       .catch(() => {})
     setToken(null)
     setUser(null)
+    setLoading(false)
   }
 
   const updateUser = (data) => {
