@@ -16,6 +16,7 @@ const Session = () => {
   // ── existing state ──────────────────────────────────────────────────────────
   const [current, setCurrent]                       = useState(0)
   const [answers, setAnswers]                       = useState({})
+  const [draftSaveStatus, setDraftSaveStatus]       = useState('saved')
   const [submitting, setSub]                        = useState(false)
   const [isSecureMode, setIsSecureMode]             = useState(Boolean(document.fullscreenElement))
   const [securityViolations, setSecurityViolations] = useState(0)
@@ -23,6 +24,7 @@ const Session = () => {
   // ── FIX 5: timer state ──────────────────────────────────────────────────────
   const [timeLeft, setTimeLeft]         = useState(null)
   const [timerStarted, setTimerStarted] = useState(false)
+  const [timerRestart, setTimerRestart] = useState(0)
   const timerRef = useRef(null)
 
   // ── FIX 6: confirm dialog ───────────────────────────────────────────────────
@@ -31,6 +33,8 @@ const Session = () => {
   // ── existing refs ───────────────────────────────────────────────────────────
   const autoSubmittedRef = useRef(false)
   const handleSubmitRef  = useRef(null)
+  const answersRef       = useRef({})
+  const answerSaveQueue  = useRef(Promise.resolve())
   const maxViolations    = 3
 
   // ── fetch session if reloaded / not in location state ─────────────────────────
@@ -73,6 +77,37 @@ const Session = () => {
   const getQuestionText = (question) => question?.questionText || question?.question || ''
   const getOptions      = (question) => Array.isArray(question?.options) ? question.options : []
 
+  useEffect(() => {
+    if (!session) return
+    const restoredAnswers = {}
+    for (const question of session.questions || []) {
+      const questionId = question?.questionId || question?._id
+      if (questionId && question.userAnswer) restoredAnswers[questionId] = question.userAnswer
+    }
+    answersRef.current = restoredAnswers
+    setAnswers(restoredAnswers)
+  }, [session])
+
+  const updateAnswer = (questionId, option) => {
+    const nextAnswers = { ...answersRef.current, [questionId]: option }
+    answersRef.current = nextAnswers
+    setAnswers(nextAnswers)
+    setDraftSaveStatus('saving')
+
+    const snapshot = Object.entries(nextAnswers).map(([id, userAnswer]) => ({ questionId: id, userAnswer }))
+    const pendingSave = answerSaveQueue.current
+      .catch(() => {})
+      .then(() => sessionAPI.saveAnswers(id, snapshot))
+    answerSaveQueue.current = pendingSave.catch(() => {})
+    pendingSave
+      .then(() => {
+        if (answersRef.current === nextAnswers) setDraftSaveStatus('saved')
+      })
+      .catch(() => {
+        if (answersRef.current === nextAnswers) setDraftSaveStatus('error')
+      })
+  }
+
   // ── FIX 5: timer format helpers ─────────────────────────────────────────────
   const formatTime = (secs) => {
     if (secs === null) return '--:--'
@@ -98,17 +133,20 @@ const Session = () => {
   // ── FIX 5: set timer when session loads ─────────────────────────────────────
   useEffect(() => {
     if (!session) return
-    const mins = session?.durationMinutes || state?.selectedDuration || 20
-    setTimeLeft(mins * 60)
+    const mins = Number(session?.durationMinutes || state?.selectedDuration || 20)
+    const startedAt = session.createdAt ? new Date(session.createdAt).getTime() : NaN
+    const elapsed = Number.isFinite(startedAt) ? Math.floor((Date.now() - startedAt) / 1000) : 0
+    setTimeLeft(Math.max(0, mins * 60 - elapsed))
     setTimerStarted(true)
   }, [session, state?.selectedDuration])
 
   // ── FIX 5: countdown — auto-submit at 0:00 ─────────────────────────────────
   useEffect(() => {
-    if (!timerStarted || timeLeft === null) return
+    if (!timerStarted) return
 
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
+        if (prev === null) return prev
         if (prev <= 1) {
           clearInterval(timerRef.current)
           if (!autoSubmittedRef.current) {
@@ -123,7 +161,7 @@ const Session = () => {
     }, 1000)
 
     return () => clearInterval(timerRef.current)
-  }, [timerStarted]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [timerStarted, timerRestart])
 
 
   // ── fullscreen & tab-switch violation listeners ────────────────────────────
@@ -157,7 +195,7 @@ const Session = () => {
   const handleSubmit = useCallback(async (forceSubmit = false) => {
     const allDone = qs.every((question) => {
       const questionId = question?.questionId || question?._id
-      return questionId && answers[questionId]
+      return questionId && answersRef.current[questionId]
     })
     if (!forceSubmit && !allDone) {
       toast.error('Please answer all questions before submitting')
@@ -166,19 +204,22 @@ const Session = () => {
     setSub(true)
     clearInterval(timerRef.current)  // stop timer on submit
     try {
+      await answerSaveQueue.current.catch(() => {})
+      const currentAnswers = answersRef.current
       const arr = qs.map((question) => {
         const questionId = question?.questionId || question?._id
-        return { questionId, userAnswer: answers[questionId] || '' }
+        return { questionId, userAnswer: currentAnswers[questionId] || '' }
       })
       const res = await sessionAPI.submitSession(id, arr)
       toast.success('AI is evaluating your answers...')
       navigate(`/feedback/${id}`, { state: { result: res.data.result } })
     } catch (err) {
       toast.error(err.response?.data?.message || 'Submission failed')
+      setTimerRestart((generation) => generation + 1)
     } finally {
       setSub(false)
     }
-  }, [qs, answers, id, navigate])
+  }, [qs, id, navigate])
 
   useEffect(() => {
     handleSubmitRef.current = handleSubmit
@@ -199,13 +240,6 @@ const Session = () => {
   }, [securityViolations, submitting, qs.length, handleSubmit])
 
 
-  if (!session) return null
-
-  const answeredCount = qs.filter((question) => {
-    const questionId = getQuestionId(question)
-    return questionId && answers[questionId]
-  }).length
-
   if (loadingSession) {
     return (
       <div className="min-h-screen bg-stone-50">
@@ -214,6 +248,13 @@ const Session = () => {
       </div>
     )
   }
+
+  if (!session) return null
+
+  const answeredCount = qs.filter((question) => {
+    const questionId = getQuestionId(question)
+    return questionId && answers[questionId]
+  }).length
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -267,6 +308,10 @@ const Session = () => {
 
                 <p className="text-xs text-gray-500 mt-1">
                   Answered: {answeredCount}/{qs.length}
+                  <span className="ml-2" aria-live="polite">
+                    {draftSaveStatus === 'saving' ? 'Saving answers…' :
+                     draftSaveStatus === 'error' ? 'Not saved — select an answer to retry' : 'Saved'}
+                  </span>
                 </p>
               </div>
 
@@ -330,7 +375,7 @@ const Session = () => {
                       <button
                         key={`${option}-${optionIdx}`}
                         type="button"
-                        onClick={() => setAnswers({ ...answers, [qid]: option })}
+                        onClick={() => updateAnswer(qid, option)}
                         className={`w-full text-left px-3.5 py-2.5 rounded-lg border text-xs transition-all ${
                           isSelected
                             ? 'border-brand-700 bg-brand-50 text-brand-900 font-medium ring-1 ring-brand-700'

@@ -4,6 +4,7 @@
 
 const jwt            = require('jsonwebtoken');
 const bcrypt         = require('bcryptjs');
+const { randomInt }  = require('crypto');
 const User           = require('../models/User');
 const Otp            = require('../models/Otp');
 const { sendOtpEmail } = require('../utils/sendEmail');
@@ -14,7 +15,7 @@ const { AUTH_CONSTANTS, APP_CONSTANTS } = require('../utils/constants');
 const generateOtp = () => {
   const min = 10 ** (AUTH_CONSTANTS.OTP_LENGTH - 1);
   const max = (10 ** AUTH_CONSTANTS.OTP_LENGTH) - 1;
-  return Math.floor(min + Math.random() * (max - min + 1)).toString();
+  return randomInt(min, max + 1).toString();
 };
 
 // Helper — generate signed JWT
@@ -22,6 +23,18 @@ const generateToken = (userId) =>
   jwt.sign({ id: userId }, process.env.JWT_SECRET, {
     expiresIn: APP_CONSTANTS.JWT_EXPIRES_IN,
   });
+
+const otpExpiry = () => new Date(
+  Date.now() + AUTH_CONSTANTS.OTP_EXPIRY_SECONDS * 1000
+).toISOString();
+
+const isOtpExpired = (record) => {
+  const expiresAt = record.expiresAt || (record.createdAt
+    ? new Date(new Date(record.createdAt).getTime() + AUTH_CONSTANTS.OTP_EXPIRY_SECONDS * 1000).toISOString()
+    : null);
+  const expiryTime = expiresAt ? new Date(expiresAt).getTime() : NaN;
+  return !Number.isFinite(expiryTime) || expiryTime <= Date.now();
+};
 
 
 // ── POST /api/auth/register ───────────────────────────────
@@ -78,6 +91,7 @@ exports.register = async (req, res, next) => {
       password: hashedPassword,
       otp,
       purpose:  'registration',
+      expiresAt: otpExpiry(),
     });
 
     let emailResult = { simulated: true, otp };
@@ -85,7 +99,22 @@ exports.register = async (req, res, next) => {
       emailResult = await sendOtpEmail(email, name.trim(), otp);
     } catch (emailErr) {
       console.warn('⚠️ sendOtpEmail error caught in register controller:', emailErr.message);
+      if (process.env.NODE_ENV === 'production') {
+        await Otp.deleteOne({ email: email.toLowerCase(), purpose: 'registration' });
+        return res.status(503).json({
+          success: false,
+          message: 'Email delivery is unavailable. Please try again later.',
+        });
+      }
       emailResult = { simulated: true, otp, deliveryError: emailErr.message };
+    }
+
+    if (process.env.NODE_ENV === 'production' && emailResult?.simulated) {
+      await Otp.deleteOne({ email: email.toLowerCase(), purpose: 'registration' });
+      return res.status(503).json({
+        success: false,
+        message: 'Email delivery is unavailable. Please try again later.',
+      });
     }
 
     return res.status(200).json({
@@ -122,6 +151,11 @@ exports.verifyOtp = async (req, res, next) => {
       });
     }
 
+    if (isOtpExpired(otpRecord)) {
+      await Otp.deleteOne({ _id: otpRecord._id });
+      return res.status(400).json({ success: false, message: 'OTP expired. Please request a new code.' });
+    }
+
     if (otpRecord.attempts >= AUTH_CONSTANTS.OTP_MAX_ATTEMPTS) {
       await Otp.deleteOne({ _id: otpRecord._id });
       return res.status(429).json({
@@ -149,11 +183,15 @@ exports.verifyOtp = async (req, res, next) => {
         try {
           const fbUser = await fbAuth.getUserByEmail(otpRecord.email);
           firebaseUid = fbUser.uid;
+          if (!fbUser.emailVerified) {
+            await fbAuth.updateUser(firebaseUid, { emailVerified: true });
+          }
         } catch (e) {
           if (e.code === 'auth/user-not-found') {
             const newFbUser = await fbAuth.createUser({
               email: otpRecord.email,
               displayName: otpRecord.name,
+              emailVerified: true,
             });
             firebaseUid = newFbUser.uid;
           }
@@ -222,6 +260,7 @@ exports.resendOtp = async (req, res, next) => {
       password: otpRecord.password,
       otp:      newOtp,
       purpose:  'registration',
+      expiresAt: otpExpiry(),
     });
 
     let emailResult = { simulated: true, otp: newOtp };
@@ -229,7 +268,22 @@ exports.resendOtp = async (req, res, next) => {
       emailResult = await sendOtpEmail(otpRecord.email, otpRecord.name, newOtp);
     } catch (emailErr) {
       console.warn('⚠️ sendOtpEmail error caught in resendOtp controller:', emailErr.message);
+      if (process.env.NODE_ENV === 'production') {
+        await Otp.deleteOne({ email: otpRecord.email, purpose: 'registration' });
+        return res.status(503).json({
+          success: false,
+          message: 'Email delivery is unavailable. Please try again later.',
+        });
+      }
       emailResult = { simulated: true, otp: newOtp, deliveryError: emailErr.message };
+    }
+
+    if (process.env.NODE_ENV === 'production' && emailResult?.simulated) {
+      await Otp.deleteOne({ email: otpRecord.email, purpose: 'registration' });
+      return res.status(503).json({
+        success: false,
+        message: 'Email delivery is unavailable. Please try again later.',
+      });
     }
 
     return res.status(200).json({
@@ -265,22 +319,16 @@ exports.forgotPassword = async (req, res, next) => {
       });
     }
 
-    if (!user.password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Account password is missing. Please login support or reset your account.',
-      });
-    }
-
     const otp = generateOtp();
 
     await Otp.deleteMany({ email: email.toLowerCase(), purpose: 'reset_password' });
     await Otp.create({
       email: email.toLowerCase(),
       name: user.name,
-      password: user.password, // keep existing password as placeholder
+      ...(user.password ? { password: user.password } : {}),
       otp,
       purpose: 'reset_password',
+      expiresAt: otpExpiry(),
     });
 
     let emailResult = { simulated: true, otp };
@@ -288,7 +336,22 @@ exports.forgotPassword = async (req, res, next) => {
       emailResult = await sendOtpEmail(user.email, user.name, otp);
     } catch (emailErr) {
       console.warn('⚠️ sendOtpEmail error caught in forgotPassword controller:', emailErr.message);
+      if (process.env.NODE_ENV === 'production') {
+        await Otp.deleteOne({ email: user.email.toLowerCase(), purpose: 'reset_password' });
+        return res.status(503).json({
+          success: false,
+          message: 'Email delivery is unavailable. Please try again later.',
+        });
+      }
       emailResult = { simulated: true, otp, deliveryError: emailErr.message };
+    }
+
+    if (process.env.NODE_ENV === 'production' && emailResult?.simulated) {
+      await Otp.deleteOne({ email: user.email.toLowerCase(), purpose: 'reset_password' });
+      return res.status(503).json({
+        success: false,
+        message: 'Email delivery is unavailable. Please try again later.',
+      });
     }
 
     return res.status(200).json({
@@ -335,6 +398,11 @@ exports.resetPassword = async (req, res, next) => {
       });
     }
 
+    if (isOtpExpired(otpRecord)) {
+      await Otp.deleteOne({ _id: otpRecord._id });
+      return res.status(400).json({ success: false, message: 'Reset code expired. Please request a new code.' });
+    }
+
     if (otpRecord.attempts >= AUTH_CONSTANTS.OTP_MAX_ATTEMPTS) {
       await Otp.deleteOne({ _id: otpRecord._id });
       return res.status(429).json({
@@ -354,6 +422,24 @@ exports.resetPassword = async (req, res, next) => {
 
     const salt = await bcrypt.genSalt(AUTH_CONSTANTS.BCRYPT_SALT_ROUNDS);
     const hashedPassword = await bcrypt.hash(password, salt);
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Account not found.' });
+    }
+
+    // Keep Firebase Auth and the application profile in sync when this account
+    // has a Firebase identity. Backend-only accounts continue to work normally.
+    try {
+      const { getFirebaseAuth } = require('../config/firebase');
+      const firebaseAuth = getFirebaseAuth();
+      const firebaseUser = await firebaseAuth.getUserByEmail(user.email);
+      await firebaseAuth.updateUser(firebaseUser.uid, { password, emailVerified: true });
+    } catch (firebaseError) {
+      if (firebaseError.code !== 'auth/user-not-found') {
+        return next(firebaseError);
+      }
+    }
 
     await User.findOneAndUpdate(
       { email: email.toLowerCase() },
@@ -385,6 +471,10 @@ exports.login = async (req, res, next) => {
       });
     }
 
+    if (process.env.NODE_ENV === 'production' && email.toLowerCase() === 'testuser@gmail.com') {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
     const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
     if (!user) {
       return res.status(401).json({
@@ -393,7 +483,7 @@ exports.login = async (req, res, next) => {
       });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = user.password ? await bcrypt.compare(password, user.password) : false;
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -418,17 +508,31 @@ exports.login = async (req, res, next) => {
 // ── POST /api/auth/firebase-sync ──────────────────────────
 exports.firebaseSync = async (req, res, next) => {
   try {
-    const { email, name } = req.body;
-    if (!email) {
+    const { email, name, idToken } = req.body;
+    if (!email || !idToken) {
       return res.status(400).json({
         success: false,
-        message: 'Email is required',
+        message: 'Email and Firebase ID token are required',
       });
+    }
+
+    if (process.env.NODE_ENV === 'production' && email.toLowerCase() === 'testuser@gmail.com') {
+      return res.status(401).json({ success: false, message: 'This development account is unavailable' });
+    }
+
+    const { getFirebaseAuth } = require('../config/firebase');
+    const decoded = await getFirebaseAuth().verifyIdToken(idToken);
+    if (!decoded.email || decoded.email.toLowerCase() !== email.toLowerCase()) {
+      return res.status(401).json({ success: false, message: 'Firebase identity does not match the supplied email' });
+    }
+    if (!decoded.email_verified) {
+      return res.status(403).json({ success: false, message: 'Please verify your email address before continuing' });
     }
 
     let user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
       user = await User.create({
+        _id: decoded.uid,
         name: (name || '').trim() || email.split('@')[0],
         email: email.toLowerCase(),
         isPremium: false,

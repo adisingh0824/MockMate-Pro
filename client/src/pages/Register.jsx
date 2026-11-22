@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { authAPI } from '../services/api'
 import { useAuth } from '../context/AuthContext'
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth'
+import { createUserWithEmailAndPassword, sendEmailVerification, signInWithEmailAndPassword, signOut, updateProfile } from 'firebase/auth'
 import { auth as firebaseAuth } from '../firebase'
 import toast from 'react-hot-toast'
 
@@ -77,7 +77,17 @@ const Register = () => {
         },
       })
     } catch (err) {
-      // 2. If backend email dispatch fails, create the account directly via Firebase Authentication
+      if (err.response?.status === 503) {
+        toast.error(err.response?.data?.message || 'Email delivery is unavailable. Please try again later.')
+        return
+      }
+
+      if (err.response) {
+        toast.error(err.response.data?.message || 'Registration failed. Please try again.')
+        return
+      }
+
+      // If the backend cannot be reached, Firebase can still establish the identity.
       console.warn('Backend register failed, activating Firebase Auth fallback:', err.message)
 
       try {
@@ -93,6 +103,14 @@ const Register = () => {
           } catch (profileErr) {
             console.warn('Profile update optional step skipped:', profileErr.message)
           }
+        }
+
+        if (!userCred.user.emailVerified) {
+          await sendEmailVerification(userCred.user)
+          await signOut(firebaseAuth)
+          toast.success('Check your email to verify your address, then sign in to continue.')
+          navigate('/login')
+          return
         }
 
         const idToken = await userCred.user.getIdToken()
@@ -131,6 +149,13 @@ const Register = () => {
               form.email.toLowerCase(),
               form.password
             )
+            if (!loginCred.user.emailVerified) {
+              await sendEmailVerification(loginCred.user)
+              await signOut(firebaseAuth)
+              toast.success('Check your email to verify your address, then sign in to continue.')
+              navigate('/login')
+              return
+            }
             const idToken = await loginCred.user.getIdToken()
             let activeToken = idToken
             let userData = {
@@ -163,15 +188,6 @@ const Register = () => {
             toast.error('This email is already registered. Please sign in.')
             navigate('/login')
           }
-        } else if (err.response?.data?.message?.includes('domain is not verified') || err.response?.data?.message?.includes('Resend')) {
-          // Backward-compat for legacy backend instances still updating on Render
-          toast.success('Registration initiated! Enter verification code.')
-          navigate('/verify-otp', {
-            state: {
-              email: form.email.toLowerCase(),
-              devOtp: '123456',
-            },
-          })
         } else {
           const msg = err.response?.data?.message || fbErr.message || 'Registration failed'
           toast.error(msg)

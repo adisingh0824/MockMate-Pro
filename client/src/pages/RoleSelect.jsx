@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { sessionAPI } from '../services/api'
+import { DEFAULT_ROLES, DEFAULT_CONFIG } from '../constants/defaults'
 import Navbar from '../components/Navbar'
 import toast from 'react-hot-toast'
 
@@ -26,12 +27,16 @@ const RoleSelect = () => {
 
   useEffect(() => {
     setLoading(true)
-    Promise.all([sessionAPI.getRoles(), sessionAPI.getConfig()])
+    Promise.allSettled([sessionAPI.getRoles(), sessionAPI.getConfig()])
       .then(([rolesRes, configRes]) => {
-        const nextRoles = rolesRes.data.roles || []
-        const config = configRes.data?.config || {}
-        const nextDiffs = Array.isArray(config.difficulties) ? config.difficulties : []
-        const nextCounts = Array.isArray(config.questionCounts) ? config.questionCounts : []
+        const nextRoles = rolesRes.status === 'fulfilled' && rolesRes.value.data?.roles?.length
+          ? rolesRes.value.data.roles
+          : DEFAULT_ROLES
+        const config = configRes.status === 'fulfilled' && configRes.value.data?.config
+          ? configRes.value.data.config
+          : DEFAULT_CONFIG
+        const nextDiffs = Array.isArray(config.difficulties) ? config.difficulties : DEFAULT_CONFIG.difficulties
+        const nextCounts = Array.isArray(config.questionCounts) ? config.questionCounts : DEFAULT_CONFIG.questionCounts
 
         setRoles(nextRoles)
         setDiffs(nextDiffs)
@@ -40,7 +45,11 @@ const RoleSelect = () => {
         if (config.defaultDifficulty) setDiff(config.defaultDifficulty)
         if (config.defaultQuestionCount) setCount(Number(config.defaultQuestionCount))
       })
-      .catch(() => toast.error('Failed to load session configuration'))
+      .catch(() => {
+        setRoles(DEFAULT_ROLES)
+        setDiffs(DEFAULT_CONFIG.difficulties)
+        setCounts(DEFAULT_CONFIG.questionCounts)
+      })
       .finally(() => setLoading(false))
   }, [])
 

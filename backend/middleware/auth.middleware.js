@@ -27,7 +27,12 @@ const protect = async (req, res, next) => {
 
     if (userId) {
       req.user = await User.findById(userId).select('-password');
-      if (req.user) return next();
+      if (req.user) {
+        if (process.env.NODE_ENV === 'production' && req.user.email?.toLowerCase() === 'testuser@gmail.com') {
+          return res.status(401).json({ success: false, message: 'This development account is unavailable' });
+        }
+        return next();
+      }
     }
   } catch (jwtErr) {
     // If local JWT verification fails, try Firebase ID token below
@@ -39,6 +44,12 @@ const protect = async (req, res, next) => {
     if (auth) {
       const decodedFirebase = await auth.verifyIdToken(token);
       if (decodedFirebase?.email) {
+        if (!decodedFirebase.email_verified) {
+          return res.status(403).json({ success: false, message: 'Please verify your email address before continuing' });
+        }
+        if (process.env.NODE_ENV === 'production' && decodedFirebase.email.toLowerCase() === 'testuser@gmail.com') {
+          return res.status(401).json({ success: false, message: 'This development account is unavailable' });
+        }
         let user = await User.findOne({ email: decodedFirebase.email.toLowerCase() });
         if (!user) {
           user = await User.create({

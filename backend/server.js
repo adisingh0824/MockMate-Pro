@@ -29,12 +29,11 @@ app.get('/', (req, res) =>
 app.use(require('./middleware/error.middleware'));
 
 const startServer = async () => {
-  try {
-    await initFirebase();
-    console.log('🔥 Firebase Cloud Firestore database connected');
-  } catch (e) {
-    console.error('❌ Failed to establish Firebase connection:', e.message);
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET must be set before starting the API server');
   }
+  await initFirebase();
+  console.log('🔥 Firebase Cloud Firestore database connected');
 
   const PORT = process.env.PORT || 5800;
   const server = app.listen(PORT, () =>
@@ -44,7 +43,10 @@ const startServer = async () => {
 };
 
 if (require.main === module) {
-  startServer();
+  startServer().catch((err) => {
+    console.error('❌ Server startup failed:', err.message);
+    process.exitCode = 1;
+  });
 }
 
 module.exports = { app, startServer };

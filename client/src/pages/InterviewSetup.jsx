@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { interviewAPI, sessionAPI } from '../services/api';
+import { DEFAULT_ROLES } from '../constants/defaults';
 import toast from 'react-hot-toast';
 
 const LEVELS = [
@@ -35,8 +36,8 @@ const InterviewSetup = () => {
 
   useEffect(() => {
     sessionAPI.getRoles()
-      .then(r => setRoles(Array.isArray(r.data.roles) ? r.data.roles : []))
-      .catch(() => toast.error('Failed to load target roles'))
+      .then(r => setRoles(Array.isArray(r.data.roles) && r.data.roles.length > 0 ? r.data.roles : DEFAULT_ROLES))
+      .catch(() => setRoles(DEFAULT_ROLES))
       .finally(() => setLoading(false));
   }, []);
 

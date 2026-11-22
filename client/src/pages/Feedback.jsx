@@ -18,14 +18,21 @@ const FeedBack = () => {
     sessionAPI
       .getSession(id)
       .then((res) => {
-        setSession(res.data.session);
+        const loadedSession = res.data.session
+        if (loadedSession && !loadedSession.completedAt) {
+          navigate(loadedSession.type === 'interview'
+            ? `/live-interview/${id}`
+            : `/session/${id}`, { replace: true })
+          return
+        }
+        setSession(loadedSession);
         setLoading(false);
       })
       .catch(() => {
         setError('Session not found or access unauthorized.');
         setLoading(false);
       });
-  }, [id]);
+  }, [id, navigate]);
 
   if (loading) return <Loader text="Compiling evaluation scorecard..." />;
 

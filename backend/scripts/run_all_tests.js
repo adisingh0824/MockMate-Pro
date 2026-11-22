@@ -3,8 +3,22 @@ const path = require('path');
 const dotenv = require('dotenv');
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-const { initFirebase, getDb } = require('../config/firebase');
+const { initFirebase, getDb, getFirebaseAuth } = require('../config/firebase');
+require('../utils/sendEmail').sendOtpEmail = async (_email, _name, otp) => ({
+  success: true,
+  simulated: true,
+  otp,
+});
 const { app } = require('../server');
+
+if (process.env.NODE_ENV === 'production') {
+  throw new Error('The API smoke suite cannot run against a production environment');
+}
+
+// Keep this suite deterministic, free of email delivery, and free of paid AI calls.
+delete process.env.RESEND_API_KEY;
+delete process.env.OPENROUTER_API_KEY;
+delete process.env.OPENAI_API_KEY;
 
 // Simple JSON request helper
 const makeRequest = (port, options, body = null) => {
@@ -46,6 +60,7 @@ const runSuite = async () => {
   console.log('🧪 Starting MockMate Pro Test Suite...\n');
   let passed = 0;
   let failed = 0;
+  const cleanup = { sessionIds: [], testEmail: null, testUserId: null };
 
   const assert = (condition, title, details = '') => {
     if (condition) {
@@ -73,7 +88,7 @@ const runSuite = async () => {
     const health = await makeRequest(port, { path: '/' });
     assert(health.status === 200 && health.data?.message?.includes('MockMate Pro API'), 'GET / (Health check)');
 
-    // 4. Auth: Demo Login
+    // 4. Auth: Demo Login (read-only)
     console.log('\n📌 Testing Authentication & Profiles');
     const loginRes = await makeRequest(port, { path: '/api/auth/login', method: 'POST' }, {
       email: 'testuser@gmail.com',
@@ -82,23 +97,9 @@ const runSuite = async () => {
     assert(loginRes.status === 200 && Boolean(loginRes.data?.token), 'POST /api/auth/login (Demo login)');
     const token = loginRes.data?.token;
 
-    // 5. Auth: Get Profile
-    const meRes = await makeRequest(port, {
-      path: '/api/auth/me',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    assert(meRes.status === 200 && meRes.data?.user?.email === 'testuser@gmail.com', 'GET /api/auth/me');
-
-    // 6. Auth: Update Profile
-    const updateRes = await makeRequest(port, {
-      path: '/api/auth/me',
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}` },
-    }, { name: 'Demo Candidate Updated' });
-    assert(updateRes.status === 200 && updateRes.data?.user?.name === 'Demo Candidate Updated', 'PATCH /api/auth/me');
-
-    // 7. Auth: Registration & OTP Verification Flow
+    // 5. Auth: Registration & OTP Verification Flow
     const testRegEmail = `candidate_${Date.now()}@example.com`;
+    cleanup.testEmail = testRegEmail;
     const regRes = await makeRequest(port, { path: '/api/auth/register', method: 'POST' }, {
       name: 'Automated Tester',
       email: testRegEmail,
@@ -114,27 +115,45 @@ const runSuite = async () => {
       });
       assert(verifyRes.status === 201 && verifyRes.data?.user?.email === testRegEmail, 'POST /api/auth/verify-otp (creates user)');
       assert(typeof verifyRes.data?.token === 'string' && verifyRes.data.token.length > 20, 'POST /api/auth/verify-otp (returns JWT for auto-login)');
+      cleanup.testUserId = verifyRes.data?.user?.id;
     }
+    const sessionToken = devOtp ? (await makeRequest(port, { path: '/api/auth/login', method: 'POST' }, {
+      email: testRegEmail,
+      password: 'password12345',
+    })).data?.token : token;
 
-    // 8. Sessions: Roles and Config
+    // 6. Auth: Get and update the disposable profile, never the demo profile.
+    const meRes = await makeRequest(port, {
+      path: '/api/auth/me',
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    assert(meRes.status === 200, 'GET /api/auth/me');
+    const updateRes = await makeRequest(port, {
+      path: '/api/auth/me',
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    }, { name: 'Automated Tester Updated' });
+    assert(updateRes.status === 200 && updateRes.data?.user?.name === 'Automated Tester Updated', 'PATCH /api/auth/me');
+
+    // 7. Sessions: Roles and Config
     console.log('\n📌 Testing Practice Sessions & AI Questions');
     const rolesRes = await makeRequest(port, {
       path: '/api/sessions/roles',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     });
     assert(rolesRes.status === 200 && Array.isArray(rolesRes.data?.roles) && rolesRes.data.roles.length > 0, 'GET /api/sessions/roles');
 
     const configRes = await makeRequest(port, {
       path: '/api/sessions/config',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     });
     assert(configRes.status === 200 && configRes.data?.config?.difficulties?.length > 0, 'GET /api/sessions/config');
 
-    // 9. Sessions: Start Practice Session (with count: 5)
+    // 8. Sessions: Start Practice Session (with count: 5)
     const startSessionRes = await makeRequest(port, {
       path: '/api/sessions/start',
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     }, {
       role: 'Full Stack Developer',
       difficulty: 'medium',
@@ -149,24 +168,47 @@ const runSuite = async () => {
       'POST /api/sessions/start (Generates 5 questions)'
     );
     const sessionId = startSessionRes.data?.session?.id;
+    if (sessionId) cleanup.sessionIds.push(sessionId);
 
     // 10. Sessions: Get Session Details
     const getSessionRes = await makeRequest(port, {
       path: `/api/sessions/${sessionId}`,
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     });
     assert(getSessionRes.status === 200 && getSessionRes.data?.session?._id === sessionId, 'GET /api/sessions/:id');
+    assert(
+      (getSessionRes.data?.session?.questions || []).every((question) =>
+        !Object.hasOwn(question, 'correctAnswer') && !Object.hasOwn(question, 'explanation')),
+      'GET /api/sessions/:id (Hides answer keys before completion)'
+    );
 
-    // 11. Sessions: Submit Session Answers
+    // 11. Sessions: Save and restore the in-progress answer draft.
     const questions = startSessionRes.data?.session?.questions || [];
     const answers = questions.map((q) => ({
       questionId: q.questionId,
-      userAnswer: q.correctAnswer || 'A',
+      userAnswer: q.options?.[0] || 'A',
     }));
+    const draftRes = await makeRequest(port, {
+      path: `/api/sessions/${sessionId}/answers`,
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    }, { answers });
+    assert(draftRes.status === 200, 'PATCH /api/sessions/:id/answers (Saves answer draft)');
+    const restoredRes = await makeRequest(port, {
+      path: `/api/sessions/${sessionId}`,
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    assert(
+      restoredRes.status === 200 &&
+      restoredRes.data?.session?.questions?.every((question, index) => question.userAnswer === answers[index]?.userAnswer),
+      'GET /api/sessions/:id (Restores answer draft)'
+    );
+
+    // 12. Sessions: Submit Session Answers
     const submitRes = await makeRequest(port, {
       path: `/api/sessions/${sessionId}/submit`,
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     }, { answers });
     assert(
       submitRes.status === 200 &&
@@ -175,54 +217,55 @@ const runSuite = async () => {
       'POST /api/sessions/:id/submit (Evaluates & saves score)'
     );
 
-    // 12. Sessions: History
+    // 13. Sessions: History
     const historyRes = await makeRequest(port, {
       path: '/api/sessions/history',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     });
     assert(historyRes.status === 200 && Array.isArray(historyRes.data?.sessions), 'GET /api/sessions/history');
 
-    // 13. Companies: List
+    // 14. Companies: List
     console.log('\n📌 Testing Companies & Modules');
     const companiesRes = await makeRequest(port, {
       path: '/api/companies',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     });
     assert(companiesRes.status === 200 && Array.isArray(companiesRes.data?.companies) && companiesRes.data.companies.length >= 3, 'GET /api/companies');
 
-    // 14. Plans: List
+    // 15. Plans: List
     console.log('\n📌 Testing Subscription Plans & Payments');
     const plansRes = await makeRequest(port, {
       path: '/api/plans',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     });
     assert(plansRes.status === 200 && Array.isArray(plansRes.data?.plans) && plansRes.data.plans.length === 3, 'GET /api/plans');
 
-    // 15. Payments: Transaction History
+    // 16. Payments: Transaction History
     const txRes = await makeRequest(port, {
       path: '/api/payments/transaction-history',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     });
     assert(txRes.status === 200 && Array.isArray(txRes.data?.transactions), 'GET /api/payments/transaction-history');
 
-    // 16. Live Interview Simulation Flow
+    // 17. Live Interview Simulation Flow
     console.log('\n📌 Testing Live Interview Simulation Flow');
     const startInterviewRes = await makeRequest(port, {
       path: '/api/interview/start',
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     }, {
       role: 'Frontend Developer',
       level: 'junior',
     });
     assert(startInterviewRes.status === 201 && Boolean(startInterviewRes.data?.firstQuestion), 'POST /api/interview/start (Starts interview round)');
     const interviewId = startInterviewRes.data?.session?.id;
+    if (interviewId) cleanup.sessionIds.push(interviewId);
 
-    // 17. Live Interview: Respond to question
+    // 18. Live Interview: Respond to question
     const respondRes = await makeRequest(port, {
       path: `/api/interview/${interviewId}/respond`,
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     }, {
       userAnswer: 'I have worked extensively with React hooks, context, state optimization and Redux toolkit in production.',
       conversationHistory: [
@@ -234,11 +277,11 @@ const runSuite = async () => {
     });
     assert(respondRes.status === 200 && respondRes.data?.success, 'POST /api/interview/:id/respond (Real-time reaction & follow-up)');
 
-    // 18. Live Interview: Finish interview
+    // 19. Live Interview: Finish interview
     const finishRes = await makeRequest(port, {
       path: `/api/interview/${interviewId}/finish`,
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
     }, {
       conversationHistory: [
         { role: 'assistant', content: startInterviewRes.data?.firstQuestion },
@@ -260,7 +303,37 @@ const runSuite = async () => {
     console.error('Unhandled test execution error:', error);
     failed++;
   } finally {
-    server.close();
+    try {
+      const db = getDb();
+      const batch = db.batch();
+      cleanup.sessionIds.forEach((id) => batch.delete(db.collection('sessions').doc(id)));
+
+      if (cleanup.testEmail) {
+        const [userDocs, otpDocs] = await Promise.all([
+          db.collection('users').where('email', '==', cleanup.testEmail).get(),
+          db.collection('otps').where('email', '==', cleanup.testEmail).get(),
+        ]);
+        userDocs.docs.forEach((doc) => batch.delete(doc.ref));
+        otpDocs.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+
+        const firebaseAuth = getFirebaseAuth();
+        try {
+          const authUser = cleanup.testUserId
+            ? await firebaseAuth.getUser(cleanup.testUserId)
+            : await firebaseAuth.getUserByEmail(cleanup.testEmail);
+          await firebaseAuth.deleteUser(authUser.uid);
+        } catch (err) {
+          if (err.code !== 'auth/user-not-found') throw err;
+        }
+      } else {
+        await batch.commit();
+      }
+    } catch (cleanupError) {
+      console.error('Test data cleanup failed:', cleanupError.message);
+      failed++;
+    }
+    await new Promise((resolve) => server.close(resolve));
   }
 
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

@@ -11,11 +11,25 @@ services:
         value: production
       - key: PORT
         value: 5800
-      - key: MONGO_URI
-        sync: false
       - key: JWT_SECRET
         generateValue: true
+      - key: FIREBASE_PROJECT_ID
+        value: mockmate-pro-f2f13
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
       - key: CORS_ORIGIN
         sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_SENDER_EMAIL
+        sync: false
+      - key: RESEND_SENDER_NAME
+        value: MockMate Pro
+      - key: RESEND_VERIFIED_DOMAIN
+        value: "false"
       - key: OPENROUTER_API_KEY
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
         sync: false

@@ -5,6 +5,14 @@ const getResendApiKey = () =>
     .trim()
     .replace(/^['\"]|['\"]$/g, '');
 
+const escapeHtml = (value = '') => String(value).replace(/[&<>\"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '\"': '&quot;',
+  "'": '&#39;',
+}[character]));
+
 const parseEmailFrom = (fromValue = '') => {
   const match = fromValue.match(/^(.*)<([^>]+)>$/);
   if (!match) {
@@ -71,9 +79,14 @@ const sendWithResend = (payload) =>
 
 const sendOtpEmail = async (toEmail, toName, otp) => {
   const apiKey = getResendApiKey();
+  const safeName = escapeHtml(toName);
 
-  // If RESEND_API_KEY is not configured, run in safe simulation mode
+  // Simulate delivery only in development; production must never expose an OTP.
   if (!apiKey) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Email delivery is not configured');
+    }
+
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`✉️  [MOCKMATE EMAIL DISPATCH] (Simulation Mode)`);
     console.log(`👤 Recipient: ${toName} <${toEmail}>`);
@@ -107,7 +120,7 @@ const sendOtpEmail = async (toEmail, toName, otp) => {
         <!-- Body -->
         <div style="padding: 32px;">
           <p style="font-size: 15px; color: #18181b; margin: 0 0 8px;">
-            Hi <strong>${toName}</strong>,
+            Hi <strong>${safeName}</strong>,
           </p>
           <p style="font-size: 14px; color: #52525b; margin: 0 0 24px; line-height: 1.6;">
             Use the OTP code below to verify your email address and complete your registration.
@@ -167,7 +180,11 @@ const sendOtpEmail = async (toEmail, toName, otp) => {
       }
     }
 
-    // Graceful fallback: return the OTP code directly so user is NEVER blocked by an email delivery issue
+    if (process.env.NODE_ENV === 'production') {
+      throw err;
+    }
+
+    // Development-only fallback keeps local registration usable without a mail provider.
     console.warn(`⚠️ Resend delivery issue (${err.message}). Returning OTP in response.`);
     console.log(`🔑 Verification code for ${toEmail}: [ ${otp} ]`);
     return {

@@ -72,6 +72,7 @@ exports.getPlans = async (req, res, next) => {
     res.status(200).json({
       success: true,
       plans,
+      paymentEnabled: Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
     });
   } catch (err) {
     next(err);

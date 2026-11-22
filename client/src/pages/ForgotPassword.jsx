@@ -56,8 +56,9 @@ const ForgotPassword = () => {
   const resendOtp = async () => {
     try {
       setResending(true)
-      await authAPI.forgotPassword(email)
-      toast.success('New reset code sent')
+      const res = await authAPI.forgotPassword(email)
+      if (res.data?.devOtp) setOtp(res.data.devOtp)
+      toast.success(res.data?.message || 'New reset code sent')
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to resend code')
     } finally {

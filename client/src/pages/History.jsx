@@ -64,6 +64,12 @@ const History = () => {
     interview: 'bg-brand-50 text-brand-800 border-brand-200',
   }
   const getSessionType = (session) => (session?.type === 'practice' ? 'practice' : 'interview')
+  const openSession = (session) => {
+    if (session.completedAt) return navigate(`/feedback/${session._id}`)
+    return navigate(session.type === 'interview'
+      ? `/live-interview/${session._id}`
+      : `/session/${session._id}`)
+  }
 
   const getStatusColor = (status) => {
     switch(status) {
@@ -75,12 +81,32 @@ const History = () => {
     }
   }
 
-  const formatDate = (date) => {
-    return new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  const toDate = (value) => {
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+    if (value && typeof value.toDate === 'function') return toDate(value.toDate())
+    if (value && typeof value === 'object') {
+      const seconds = value.seconds ?? value._seconds
+      if (Number.isFinite(seconds)) return new Date(seconds * 1000)
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+      const parsed = new Date(value)
+      return Number.isNaN(parsed.getTime()) ? null : parsed
+    }
+    return null
   }
 
-  const formatTime = (date) => {
-    return new Date(date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+  const formatDate = (value) => {
+    const date = toDate(value)
+    return date
+      ? date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+      : 'Date unavailable'
+  }
+
+  const formatTime = (value) => {
+    const date = toDate(value)
+    return date
+      ? date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+      : '—'
   }
 
   return (
@@ -157,15 +183,16 @@ const History = () => {
             ) : (
               <div className="space-y-2.5">
                 {filtered.map(s => (
-                  <div
+                  <button
+                    type="button"
                     key={s._id}
-                    onClick={() => navigate(`/feedback/${s._id}`)}
-                    className="card p-3.5 cursor-pointer hover:border-stone-400 transition-all flex items-center gap-3.5 border-stone-200"
+                    onClick={() => openSession(s)}
+                    className="card w-full text-left p-3.5 cursor-pointer hover:border-stone-400 transition-all flex items-center gap-3.5 border-stone-200"
                   >
                     <div className={`w-11 h-11 rounded-lg border flex flex-col items-center justify-center font-bold flex-shrink-0 ${
-                      s.overallScore >= 7 ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : s.overallScore >= 5 ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-rose-50 text-rose-800 border-rose-200'
+                      !s.completedAt ? 'bg-stone-100 text-stone-600 border-stone-200' : s.overallScore >= 7 ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : s.overallScore >= 5 ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-rose-50 text-rose-800 border-rose-200'
                     }`}>
-                      <span className="text-sm leading-none font-bold">{s.overallScore || 0}</span>
+                      <span className="text-sm leading-none font-bold">{s.completedAt ? (s.overallScore || 0) : '…'}</span>
                       <span className="text-[10px] opacity-75">/10</span>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -174,12 +201,14 @@ const History = () => {
                         <span className={`text-[10px] px-2 py-0.5 rounded border capitalize font-medium ${dc[s.difficulty] || 'bg-stone-100 text-stone-600 border-stone-200'}`}>{s.difficulty}</span>
                         <span className={`text-[10px] px-2 py-0.5 rounded border capitalize font-medium ${tc[getSessionType(s)]}`}>{getSessionType(s)}</span>
                         <span className="text-[11px] text-stone-400 ml-1">
-                          {formatDate(s.completedAt || s.createdAt)} · {formatTime(s.completedAt || s.createdAt)}
+                          {s.completedAt
+                            ? `${formatDate(s.completedAt)} · ${formatTime(s.completedAt)}`
+                            : `In progress · ${formatDate(s.createdAt)}`}
                         </span>
                       </div>
                     </div>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-stone-400 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}

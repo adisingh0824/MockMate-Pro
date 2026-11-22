@@ -19,7 +19,7 @@
 2. **Interactive Live Technical Interviews**: Conversational AI technical interviews with browser Speech-to-Text (STT) and Text-to-Speech (TTS), real-time evaluation reactions, dynamic follow-ups, and full quantitative rubric scorecards.
 3. **Company-Targeted Preparation Tracks**: Specialized interview tracks tailored to specific engineering bars, levels (Entry, Mid, Senior), and question volumes for top companies.
 4. **Subscription & Payment System**: Integrated Razorpay workflow supporting monthly and yearly access tiers with automated transaction tracking and cancellation handling.
-5. **Zero-Config Resilient Architecture**: Auto-discovering in-memory database fallback for instant local execution, along with offline/simulated OTP email fallback so development and testing never stall.
+5. **Resilient Development Defaults**: Built-in question/evaluation fallbacks and simulated OTP delivery keep core practice usable without optional AI, email, or payment credentials.
 
 ---
 
@@ -45,7 +45,7 @@ flowchart TD
 ## 🚀 Quick Start Guide
 
 ### 1. Prerequisites
-- Node.js (v18 or newer recommended)
+- Node.js 20.19+ or 22.12+
 - npm (v9 or newer)
 
 ### 2. Installation
@@ -69,23 +69,27 @@ npm install
 ### 3. Environment Variables Configuration
 
 #### Backend Configuration (`backend/.env`):
+Copy `backend/.env.example` to `backend/.env`. Configure Firebase Admin credentials with `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_SERVICE_ACCOUNT_PATH`, or Google Application Default Credentials. The backend needs Firestore access to start. Keep service account credentials out of source control.
+
 ```env
 PORT=5800
 NODE_ENV=development
-MONGO_URI=mongodb://localhost:27017/mockmate_pro
-JWT_SECRET=dev_mockmate_jwt_secret_key_aditya_2026
+JWT_SECRET=replace-with-a-long-random-local-development-secret
 JWT_EXPIRES_IN=7d
-CORS_ORIGIN=*
+CORS_ORIGIN=http://localhost:3000
+FIREBASE_PROJECT_ID=mockmate-pro-f2f13
 OTP_LENGTH=6
 OTP_EXPIRY_SECONDS=600
 OTP_MAX_ATTEMPTS=5
 BCRYPT_SALT_ROUNDS=10
 
-# Email (Resend) - Optional in dev (falls back to terminal OTP output)
+# Email (Resend) - Optional in dev (falls back to terminal OTP output); required in production for registration and password reset
 RESEND_API_KEY=
-RESEND_SENDER_EMAIL=sadityasingh7990@gmail.com
+RESEND_SENDER_EMAIL=reply@yourdomain.com
 RESEND_SENDER_NAME=MockMate Pro
-EMAIL_FROM=Aditya Singh <sadityasingh7990@gmail.com>
+EMAIL_FROM=MockMate Pro <reply@yourdomain.com>
+# Set true only after verifying the sender domain with Resend
+RESEND_VERIFIED_DOMAIN=false
 
 # Razorpay - Optional for dev testing
 RAZORPAY_KEY_ID=
@@ -99,11 +103,16 @@ OPENROUTER_MODEL=gpt-4o-mini
 #### Client Configuration (`client/.env`):
 ```env
 VITE_API_BASE_URL=http://localhost:5800/api
+VITE_RAZORPAY_KEY_ID=rzp_test_your_key_id
 ```
+
+To enable checkout, configure both Razorpay keys on the backend and `VITE_RAZORPAY_KEY_ID` in the frontend deployment environment. Payment checkout is unavailable until those provider keys are supplied.
+
+For production registration and password reset, configure `RESEND_API_KEY` and a sender address authorized by Resend. Set `RESEND_VERIFIED_DOMAIN=true` only after verifying that domain in Resend. If email delivery is unavailable in production, OTP endpoints return an error and never reveal the code in the API response.
 
 ### 4. Running the Application
 
-In terminal 1 (Backend):
+In terminal 1 (Backend; configure Firebase Admin credentials first):
 ```bash
 cd backend
 npm start
@@ -139,7 +148,7 @@ npm run build
 
 ## 🔑 Default Demo Credentials
 
-For quick local evaluation, the database auto-seeds a pre-configured demo account on initial startup:
+For local development, the database auto-seeds a demo account on initial startup. The demo account is not created in production:
 - **Email**: `testuser@gmail.com`
 - **Password**: `testpassword@1234`
 

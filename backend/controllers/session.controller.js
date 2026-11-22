@@ -136,7 +136,8 @@ exports.startSession = async (req, res, next) => {
     res.status(201).json({ success: true, session: {
       id: session.id, role: session.role, difficulty: session.difficulty,
       type: session.type, company: session.company,
-      durationMinutes: session.durationMinutes, questions: session.questions,
+      durationMinutes: session.durationMinutes, createdAt: session.createdAt,
+      questions: session.questions.map(({ correctAnswer, explanation, ...question }) => question),
     }});
   } catch (err) { next(err); }
 };
@@ -147,10 +148,18 @@ exports.getHistory = async (req, res, next) => {
     const sessions = await Session.find({ user: req.user.id })
       .sort('-createdAt')
       .limit(20);
+
+    const safeSessions = sessions.map((session) => {
+      if (session.completedAt || !Array.isArray(session.questions)) return session;
+      return {
+        ...session,
+        questions: session.questions.map(({ correctAnswer, explanation, ...question }) => question),
+      };
+    });
     
     res.status(200).json({
       success: true,
-      sessions
+      sessions: safeSessions
     });
   } catch (err) {
     next(err);
@@ -164,7 +173,52 @@ exports.getSession = async (req, res, next) => {
     if (!session) {
       return res.status(404).json({ success: false, message: 'Session not found' });
     }
-    res.status(200).json({ success: true, session });
+    const responseSession = { ...session };
+    if (!session.completedAt && Array.isArray(session.questions)) {
+      responseSession.questions = session.questions.map(({ correctAnswer, explanation, ...question }) => question);
+    }
+    res.status(200).json({ success: true, session: responseSession });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// PATCH /api/sessions/:id/answers — save an in-progress practice draft
+exports.saveSessionAnswers = async (req, res, next) => {
+  try {
+    const { answers } = req.body;
+    if (!Array.isArray(answers)) {
+      return res.status(400).json({ success: false, message: 'Answers must be an array' });
+    }
+
+    const session = await Session.findOne({ _id: req.params.id, user: req.user.id });
+    if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
+    if (session.completedAt) {
+      return res.status(409).json({ success: false, message: 'This session is already complete' });
+    }
+    if (session.type === 'interview') {
+      return res.status(400).json({ success: false, message: 'Interview answers are saved through the interview flow' });
+    }
+
+    const answerMap = new Map();
+    answers.forEach((item) => {
+      const questionId = item?.questionId || item?.id || item?._id;
+      if (questionId && typeof item.userAnswer === 'string') {
+        answerMap.set(String(questionId), item.userAnswer);
+      }
+    });
+
+    let savedCount = 0;
+    session.questions = (session.questions || []).map((question, index) => {
+      const questionId = String(question.questionId || question._id || `q${index + 1}`);
+      const selected = answerMap.get(questionId) || '';
+      const userAnswer = question.options?.includes(selected) ? selected : '';
+      if (userAnswer) savedCount += 1;
+      return { ...question, questionId, userAnswer };
+    });
+    await session.save();
+
+    res.status(200).json({ success: true, savedCount });
   } catch (err) {
     next(err);
   }
@@ -178,6 +232,9 @@ exports.submitSession = async (req, res, next) => {
     const session = await Session.findOne({ _id: req.params.id, user: req.user.id });
     if (!session) {
       return res.status(404).json({ success: false, message: 'Session not found' });
+    }
+    if (session.completedAt) {
+      return res.status(200).json({ success: true, result: session });
     }
 
     const answerMap = new Map();

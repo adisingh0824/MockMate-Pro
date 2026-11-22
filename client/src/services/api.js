@@ -7,8 +7,47 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('mm_token')
+const isFirebaseIdToken = (token) => {
+  try {
+    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const claims = JSON.parse(atob(payload))
+    return claims.iss?.startsWith('https://securetoken.google.com/') || false
+  } catch {
+    return false
+  }
+}
+
+const getFirebaseUser = async () => {
+  const [{ auth }, { onAuthStateChanged }] = await Promise.all([
+    import('../firebase'),
+    import('firebase/auth'),
+  ])
+  if (auth.currentUser) return auth.currentUser
+  return new Promise((resolve) => {
+    let unsubscribe = () => {}
+    unsubscribe = onAuthStateChanged(auth, (user) => {
+      unsubscribe()
+      resolve(user)
+    }, (_error) => {
+      unsubscribe()
+      resolve(null)
+    })
+  })
+}
+
+api.interceptors.request.use(async (config) => {
+  let token = localStorage.getItem('mm_token')
+  if (token && isFirebaseIdToken(token)) {
+    try {
+      const firebaseUser = await getFirebaseUser()
+      if (firebaseUser) {
+        token = await firebaseUser.getIdToken()
+        localStorage.setItem('mm_token', token)
+      }
+    } catch {
+      // Send the stored token; the API will reject it if it has expired.
+    }
+  }
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -38,6 +77,7 @@ export const sessionAPI = {
   getConfig:     ()            => api.get('/sessions/config'),
   getHistory:    ()            => api.get('/sessions/history'),
   getSession:    (id)          => api.get(`/sessions/${id}`),
+  saveAnswers:   (id, answers) => api.patch(`/sessions/${id}/answers`, { answers }),
   startSession:  (data)        => api.post('/sessions/start', data),
   submitSession: (id, answers) => api.post(`/sessions/${id}/submit`, { answers }),
 }

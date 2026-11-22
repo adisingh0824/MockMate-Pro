@@ -10,7 +10,7 @@ const getRazorpay = () => {
 
   if (!key_id || !key_secret) {
     const err = new Error('Razorpay keys are missing. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in backend .env.');
-    err.status = 400;
+    err.statusCode = 503;
     throw err;
   }
 
@@ -110,6 +110,16 @@ exports.verifyPayment = async (req, res, next) => {
       });
     }
 
+    const transaction = await Transaction.findOne({
+      razorpayOrderId: razorpay_order_id,
+      user: req.user.id,
+    });
+    if (!transaction) {
+      return res.status(404).json({ success: false, message: 'Payment order not found for this account' });
+    }
+    if (transaction.planId !== planId) {
+      return res.status(400).json({ success: false, message: 'Payment order does not match the selected plan' });
+    }
     const secret = process.env.RAZORPAY_KEY_SECRET;
     if (!secret) {
       console.error('❌ Razorpay secret key missing');
@@ -157,26 +167,28 @@ exports.verifyPayment = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Plan not found' });
     }
 
+    if (transaction.amount !== parseAmountInRupees(plan.price)) {
+      return res.status(400).json({ success: false, message: 'Payment amount does not match the selected plan' });
+    }
+
     console.log('✅ Plan found:', plan.planId);
 
     const user = await User.findByIdAndUpdate(
       req.user.id,
       { isPremium: true },
       { returnDocument: 'after' }
-    ).select('name email isPremium');
+    );
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Account not found' });
+    }
 
     console.log('✅ User updated to premium');
 
     // Update transaction as success
-    const transaction = await Transaction.findOneAndUpdate(
-      { razorpayOrderId: razorpay_order_id },
-      {
-        razorpayPaymentId: razorpay_payment_id,
-        razorpaySignature: razorpay_signature,
-        status: 'success',
-      },
-      { returnDocument: 'after' }
-    );
+    transaction.razorpayPaymentId = razorpay_payment_id;
+    transaction.razorpaySignature = razorpay_signature;
+    transaction.status = 'success';
+    await transaction.save();
 
     console.log('✅ Transaction updated:', transaction?._id);
 
@@ -260,7 +272,7 @@ exports.debugPaymentSetup = async (req, res, next) => {
     const checks = {
       razorpayKeyId: !!process.env.RAZORPAY_KEY_ID,
       razorpayKeySecret: !!process.env.RAZORPAY_KEY_SECRET,
-      mongoConnection: !!req.user,
+      firestoreConnection: !!req.user,
       transactionsCount: await Transaction.countDocuments({ user: req.user.id }),
       latestTransaction: await Transaction.findOne({ user: req.user.id }).sort('-createdAt'),
     };

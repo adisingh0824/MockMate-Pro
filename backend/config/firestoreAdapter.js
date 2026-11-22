@@ -1,9 +1,25 @@
 const { getDb } = require('./firebase');
 
+// Firestore returns Timestamp instances for fields written as JavaScript Dates.
+// Normalize them before exposing model objects so Express JSON responses and
+// the client receive consistent ISO strings for every date, including nested
+// session/result fields.
+const normalizeFirestoreValue = (value) => {
+  if (value instanceof Date) return value.toISOString();
+  if (value && typeof value.toDate === 'function') return value.toDate().toISOString();
+  if (Array.isArray(value)) return value.map(normalizeFirestoreValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [key, normalizeFirestoreValue(nestedValue)])
+    );
+  }
+  return value;
+};
+
 // Helper to convert Firestore doc snapshot to a plain Mongoose-like object
 const docToObject = (doc) => {
   if (!doc || !doc.exists) return null;
-  const data = doc.data();
+  const data = normalizeFirestoreValue(doc.data());
   const id = doc.id;
   const instance = {
     ...data,
@@ -98,7 +114,8 @@ class QueryBuilder {
         }
       }
 
-      return this._isFindOne ? obj : [obj];
+      const projected = this._applyProjection(obj);
+      return this._isFindOne ? projected : [projected];
     }
 
     // Query Firestore with equality filters (without composite orderBy to avoid missing index errors)
@@ -153,6 +170,8 @@ class QueryBuilder {
       results = results.slice(0, this._limit);
     }
 
+    results = results.map((obj) => this._applyProjection(obj));
+
     if (this._isFindOne) {
       return results.length > 0 ? results[0] : null;
     }
@@ -184,6 +203,38 @@ class QueryBuilder {
       await collectionRef.doc(id).set(dataToSave, { merge: true });
       return this;
     };
+  }
+
+  _applyProjection(obj) {
+    if (!obj || !this._selectFields?.length) return obj;
+
+    const exclusions = this._selectFields
+      .filter((field) => field.startsWith('-'))
+      .map((field) => field.slice(1));
+    const inclusions = this._selectFields
+      .filter((field) => !field.startsWith('-') && !field.startsWith('+'));
+
+    let projected;
+    if (inclusions.length > 0) {
+      projected = {};
+      for (const field of inclusions) {
+        if (Object.prototype.hasOwnProperty.call(obj, field)) {
+          projected[field] = obj[field];
+        }
+      }
+      if (!exclusions.includes('_id') && obj._id !== undefined) {
+        projected._id = obj._id;
+      }
+      if (obj.id !== undefined) projected.id = obj.id;
+      for (const method of ['toObject', 'toJSON', 'select', 'save']) {
+        if (typeof obj[method] === 'function') projected[method] = obj[method];
+      }
+    } else {
+      projected = { ...obj };
+    }
+
+    for (const field of exclusions) delete projected[field];
+    return projected;
   }
 }
 

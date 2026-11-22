@@ -11,6 +11,7 @@ const Premium = () => {
   const { updateUser } = useAuth()
   const { company, role } = location.state || {}
   const [plans, setPlans] = useState([])
+  const [paymentEnabled, setPaymentEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [processingPlanId, setProcessingPlanId] = useState('')
@@ -25,6 +26,11 @@ const Premium = () => {
         const { data } = await planAPI.getPlans()
         if (!mounted) return
         setPlans(Array.isArray(data?.plans) ? data.plans : [])
+        setPaymentEnabled(
+          data?.paymentEnabled === undefined
+            ? Boolean(import.meta.env.VITE_RAZORPAY_KEY_ID)
+            : Boolean(data.paymentEnabled)
+        )
       } catch (err) {
         if (!mounted) return
         setError(err.response?.data?.message || 'Failed to load subscription plans. Please retry.')
@@ -51,6 +57,11 @@ const Premium = () => {
   })
 
   const handleUpgrade = async (plan) => {
+    if (!paymentEnabled) {
+      toast.error('Checkout is not configured. Add Razorpay keys to the backend to enable payments.')
+      return
+    }
+
     try {
       setProcessingPlanId(plan.planId)
 
@@ -193,6 +204,12 @@ const Premium = () => {
           </div>
         )}
 
+        {!loading && plans.length > 0 && !paymentEnabled && (
+          <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+            Subscription checkout is currently unavailable. Configure Razorpay keys on the backend to accept payments.
+          </div>
+        )}
+
         {/* Plans */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-10">
           {loading ? (
@@ -222,7 +239,7 @@ const Premium = () => {
                 <h2 className="text-sm font-bold text-stone-900 mb-1">{plan.name}</h2>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-black text-stone-900">{plan.price}</span>
-                  <span className="text-xs text-stone-400 font-normal">/ {plan.period}</span>
+                  <span className="text-xs text-stone-400 font-normal">{plan.period}</span>
                 </div>
               </div>
 
@@ -240,14 +257,14 @@ const Premium = () => {
 
               <button
                 onClick={() => handleUpgrade(plan)}
-                disabled={processingPlanId === plan.planId}
+                disabled={!paymentEnabled || processingPlanId === plan.planId}
                 className={`w-full py-2.5 rounded-lg text-xs font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
                   plan.highlight
                     ? 'bg-brand-700 text-white hover:bg-brand-800'
                     : 'bg-stone-100 text-stone-800 hover:bg-stone-200 border border-stone-200'
                 }`}
               >
-                {processingPlanId === plan.planId ? 'Processing...' : plan.cta || 'Select Plan'}
+                {processingPlanId === plan.planId ? 'Processing...' : !paymentEnabled ? 'Checkout unavailable' : plan.cta || 'Select Plan'}
               </button>
             </div>
           ))}
@@ -255,7 +272,7 @@ const Premium = () => {
 
         {/* Trust badges */}
         <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-stone-500 pt-4 border-t border-stone-200">
-          <span>Encrypted Razorpay Checkout</span>
+          {paymentEnabled && <span>Encrypted Razorpay Checkout</span>}
           <span>•</span>
           <span>Immediate Access</span>
           <span>•</span>

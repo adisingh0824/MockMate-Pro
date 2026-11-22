@@ -1,6 +1,15 @@
 const Session = require('../models/Session');
 const { generateInterviewQuestion, evaluateInterviewAnswer } = require('../services/interviewAI.service');
 
+const normalizeConversationHistory = (history = []) =>
+  (Array.isArray(history) ? history : [])
+    .filter((message) =>
+      (message?.role === 'assistant' || message?.role === 'user') &&
+      typeof message.content === 'string'
+    )
+    .slice(-24)
+    .map((message) => ({ role: message.role, content: message.content.slice(0, 6000) }));
+
 // POST /api/interview/start
 exports.startInterview = async (req, res, next) => {
   try {
@@ -38,7 +47,14 @@ exports.startInterview = async (req, res, next) => {
       count: config.questionCount,
       durationMinutes: config.questionCount * 3,
       type: 'interview',
-      questions: [],            // filled on submit
+      level: config.label,
+      firstQuestion,
+      currentQuestion: firstQuestion,
+      currentQuestionNumber: 1,
+      lastAnsweredQuestionNumber: 0,
+      conversationHistory: [{ role: 'assistant', content: firstQuestion }],
+      lastAnswerResponse: null,
+      questions: [],
     });
 
     res.status(201).json({
@@ -62,27 +78,82 @@ exports.startInterview = async (req, res, next) => {
 exports.respondToAnswer = async (req, res, next) => {
   try {
     const { userAnswer, conversationHistory, questionNumber, totalQuestions } = req.body;
+    if (typeof userAnswer !== 'string' || !userAnswer.trim()) {
+      return res.status(400).json({ success: false, message: 'An answer is required' });
+    }
+
     const session = await Session.findOne({ _id: req.params.id, user: req.user.id });
     if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
 
-    const isLast = questionNumber >= totalQuestions;
+    if (session.completedAt) {
+      return res.status(409).json({ success: false, message: 'This interview is already complete' });
+    }
+
+    const questionTotal = Math.max(1, Number(session.count) || Number(totalQuestions) || 5);
+    const activeQuestionNumber = Math.max(1, Number(session.currentQuestionNumber) || 1);
+    const requestedQuestionNumber = Number(questionNumber) || activeQuestionNumber;
+
+    if (
+      requestedQuestionNumber < activeQuestionNumber &&
+      requestedQuestionNumber === Number(session.lastAnsweredQuestionNumber) &&
+      session.lastAnswerResponse
+    ) {
+      return res.json({
+        success: true,
+        ...session.lastAnswerResponse,
+        conversationHistory: normalizeConversationHistory(session.conversationHistory),
+        currentQuestionNumber: session.currentQuestionNumber,
+      });
+    }
+    if (activeQuestionNumber > questionTotal || requestedQuestionNumber !== activeQuestionNumber) {
+      return res.status(409).json({ success: false, message: 'Interview question is out of date. Reload the interview to continue.' });
+    }
+
+    const questionIndex = activeQuestionNumber;
+    const isLast = questionIndex >= questionTotal;
+    const history = normalizeConversationHistory(
+      Array.isArray(session.conversationHistory) && session.conversationHistory.length
+        ? session.conversationHistory
+        : conversationHistory
+    );
+    const answer = userAnswer.trim().slice(0, 12000);
+    const lastMessage = history[history.length - 1];
+    if (lastMessage?.role !== 'user' || lastMessage.content !== answer) {
+      history.push({ role: 'user', content: answer });
+    }
 
     // AI evaluates answer + generates next question (or closing)
     const aiResponse = await evaluateInterviewAnswer({
       role: session.role,
-      level: req.body.level || 'Junior',
-      conversationHistory,
-      userAnswer,
-      questionNumber,
-      totalQuestions,
+      level: session.level || req.body.level || 'Junior',
+      conversationHistory: history,
+      questionNumber: questionIndex,
+      totalQuestions: questionTotal,
       isLast,
     });
 
+    const response = {
+      nextQuestion: aiResponse.nextQuestion || null,
+      feedback: aiResponse.quickFeedback || '',
+      isLast,
+    };
+    const persistedHistory = normalizeConversationHistory([
+      ...history,
+      ...(response.nextQuestion ? [{ role: 'assistant', content: response.nextQuestion }] : []),
+    ]);
+
+    session.conversationHistory = persistedHistory;
+    session.currentQuestion = response.nextQuestion;
+    session.currentQuestionNumber = questionIndex + 1;
+    session.lastAnsweredQuestionNumber = questionIndex;
+    session.lastAnswerResponse = response;
+    await session.save();
+
     res.json({
       success: true,
-      nextQuestion: aiResponse.nextQuestion,   // null if last
-      feedback: aiResponse.quickFeedback,       // brief real-time reaction
-      isLast,
+      ...response,
+      conversationHistory: persistedHistory,
+      currentQuestionNumber: session.currentQuestionNumber,
     });
   } catch (err) {
     next(err);
@@ -142,14 +213,24 @@ const generateFallbackEvaluation = (conversationHistory = [], role = 'Software E
 // Called at the very end — saves full transcript & scores
 exports.finishInterview = async (req, res, next) => {
   try {
-    const { conversationHistory = [], level = 'Junior' } = req.body;
+    const { conversationHistory = [] } = req.body;
     const session = await Session.findOne({ _id: req.params.id, user: req.user.id });
     if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
+    if (session.completedAt && session.interviewEvaluation) {
+      return res.json({ success: true, sessionId: session._id, evaluation: session.interviewEvaluation });
+    }
+
+    const transcript = normalizeConversationHistory(
+      Array.isArray(session.conversationHistory) && session.conversationHistory.length
+        ? session.conversationHistory
+        : conversationHistory
+    );
+    const level = session.level || req.body.level || 'Junior';
 
     let evaluation = null;
 
     if (!process.env.OPENROUTER_API_KEY && !process.env.OPENAI_API_KEY) {
-      evaluation = generateFallbackEvaluation(conversationHistory, session.role, level);
+      evaluation = generateFallbackEvaluation(transcript, session.role, level);
     } else {
       const { OpenAI } = require('openai');
       const client = new OpenAI({
@@ -181,7 +262,7 @@ Return ONLY valid JSON in this format:
 
       const messages = [
         { role: 'system', content: systemPrompt },
-        ...conversationHistory,
+        ...transcript,
         { role: 'user', content: 'Please evaluate the full interview now.' },
       ];
 
@@ -201,7 +282,7 @@ Return ONLY valid JSON in this format:
         const status = err?.status || err?.response?.status || 'unknown';
         const msg = err?.message || 'Unknown provider error';
         console.warn(`[InterviewAI:finishInterview] Provider error (${status}): ${msg}. Falling back to structured evaluation.`);
-        evaluation = generateFallbackEvaluation(conversationHistory, session.role, level);
+        evaluation = generateFallbackEvaluation(transcript, session.role, level);
       }
     }
 
@@ -221,6 +302,7 @@ Return ONLY valid JSON in this format:
 
     session.questions = questions;
     session.overallScore = evaluation.overallScore || 0;
+    session.interviewEvaluation = evaluation;
     session.completedAt = new Date();
     await session.save();
 

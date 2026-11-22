@@ -153,7 +153,6 @@ Return ONLY valid JSON. No extra text.`;
   const messages = [
     { role: 'system', content: systemPrompt },
     ...conversationHistory,
-    { role: 'user', content: userAnswer },
   ];
 
   if (!process.env.OPENROUTER_API_KEY && !process.env.OPENAI_API_KEY) {

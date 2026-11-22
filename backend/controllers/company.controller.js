@@ -123,9 +123,16 @@ const DEFAULT_COMPANIES = [
 ];
 
 const bootstrapCompaniesIfEmpty = async () => {
-  const count = await Company.estimatedDocumentCount();
-  if (count > 0) return;
-  await Company.insertMany(DEFAULT_COMPANIES);
+  // Firestore may already contain a partial seed (the startup bootstrap only
+  // creates the first few records). Fill gaps by stable slug IDs so repeated
+  // requests never create duplicate company tracks or replace user edits.
+  const existing = await Promise.all(
+    DEFAULT_COMPANIES.map((company) => Company.findById(company.slug))
+  );
+  const missingCompanies = DEFAULT_COMPANIES.filter((_, index) => !existing[index]);
+  await Promise.all(missingCompanies.map((company) =>
+    Company.create({ _id: company.slug, ...company })
+  ));
 };
 
 // GET /api/companies

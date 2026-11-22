@@ -31,8 +31,9 @@ export const AuthProvider = ({ children }) => {
           localStorage.setItem('mm_user', JSON.stringify(res.data.user))
         }
       } catch (err) {
-        // If 401 and no local user exists, log out.
-        if (err.response?.status === 401 && !localStorage.getItem('mm_user')) {
+        const status = err.response?.status
+        const message = err.response?.data?.message?.toLowerCase() || ''
+        if (status === 401 || (status === 403 && message.includes('verify your email'))) {
           logout()
         }
       } finally {
@@ -57,6 +58,9 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('mm_token')
     localStorage.removeItem('mm_user')
+    import('firebase/auth')
+      .then(({ signOut }) => import('../firebase').then(({ auth }) => signOut(auth)))
+      .catch(() => {})
     setToken(null)
     setUser(null)
   }

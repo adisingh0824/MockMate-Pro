@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { authAPI } from '../services/api'
 import { useAuth } from '../context/AuthContext'
-import { signInWithEmailAndPassword } from 'firebase/auth'
+import { sendEmailVerification, signInWithEmailAndPassword, signOut } from 'firebase/auth'
 import { auth as firebaseAuth } from '../firebase'
 import toast from 'react-hot-toast'
 
@@ -60,6 +60,12 @@ const Login = () => {
       // Fallback: try Firebase Auth if backend login fails
       try {
         const userCred = await signInWithEmailAndPassword(firebaseAuth, form.email.toLowerCase(), form.password)
+        if (!userCred.user.emailVerified) {
+          await sendEmailVerification(userCred.user)
+          await signOut(firebaseAuth)
+          toast.error('Please verify your email address using the link we sent, then sign in again.')
+          return
+        }
         const idToken = await userCred.user.getIdToken()
         let token = idToken
         let userData = {
@@ -151,8 +157,8 @@ const Login = () => {
           <h2 className="text-xl font-bold text-stone-950 mb-1">Sign in to your account</h2>
           <p className="text-xs text-stone-500 mb-6">Enter your credentials to continue to your dashboard.</p>
 
-          {/* Demo account notice */}
-          <div
+          {/* Demo credentials are only included in development builds. */}
+          {import.meta.env.DEV && <div
             onClick={() => setForm({ email: 'testuser@gmail.com', password: 'testpassword@1234' })}
             className="mb-6 rounded-lg border border-stone-200 bg-white p-3.5 shadow-xs cursor-pointer hover:border-brand-500 hover:bg-stone-50/50 transition-all"
             title="Click to auto-fill demo credentials"
@@ -168,7 +174,7 @@ const Login = () => {
               <p>email: testuser@gmail.com</p>
               <p>pass: testpassword@1234</p>
             </div>
-          </div>
+          </div>}
 
           <form onSubmit={handleSubmit} noValidate className="space-y-3.5">
             <div>

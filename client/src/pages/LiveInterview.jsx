@@ -7,9 +7,6 @@ import toast from 'react-hot-toast';
 // ── Voice Activity Detection (silence = 1.8s) ───────────────────
 const SILENCE_MS   = 1800;   // stop listening after 1.8s silence
 const NO_RESPONSE_MS = 60_000; // repeat question after 1 minute of no response
-const INTRO_PROMPT =
-  "Let's begin with a quick introduction. Please introduce yourself, your background, and your recent experience in about 60 to 90 seconds.";
-
 // ── States ───────────────────────────────────────────────────────
 const STATES = {
   LOADING:    'loading',     // AI generating first question
@@ -31,7 +28,7 @@ const LiveInterview = () => {
   // ── state ──────────────────────────────────────────────────────
   const [uiState, setUiState]             = useState(STATES.LOADING);
   const [currentQuestion, setCurrentQ]   = useState('');
-  const [currentQNum, setCurrentQNum]    = useState(0);
+  const [currentQNum, setCurrentQNum]    = useState(1);
   const [userTranscript, setTranscript]  = useState('');
   const [interimText, setInterim]        = useState('');
   const [aiFeedback, setAiFeedback]      = useState('');
@@ -115,6 +112,8 @@ const LiveInterview = () => {
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       toast.error('Speech recognition not supported. Use Chrome or Edge.');
+      setMicAllowed(false);
+      setUiState(STATES.LISTENING);
       return;
     }
 
@@ -194,7 +193,7 @@ const LiveInterview = () => {
     if (session) return;
     let mounted = true;
     sessionAPI.getSession(id)
-      .then((res) => {
+      .then(async (res) => {
         if (!mounted) return;
         const s = res.data?.session;
         if (!s) {
@@ -205,16 +204,36 @@ const LiveInterview = () => {
           navigate(`/feedback/${id}`, { state: { result: s } });
           return;
         }
+        const totalQuestions = Number(s.count) || 5;
+        if ((Number(s.lastAnsweredQuestionNumber) || 0) >= totalQuestions) {
+          try {
+            const { data } = await interviewAPI.finish(id, {});
+            if (data?.success) {
+              navigate(`/feedback/${data.sessionId}`, { state: { evaluation: data.evaluation } });
+              return;
+            }
+          } catch {
+            toast.error('Could not restore the completed interview. Please try again from History.');
+          }
+          navigate('/history');
+          return;
+        }
+        const restoredHistory = Array.isArray(s.conversationHistory) && s.conversationHistory.length
+          ? s.conversationHistory
+          : [{ role: 'assistant', content: s.firstQuestion || `Could you describe your experience in ${s.role}?` }];
+        const restoredQuestion = s.currentQuestion || [...restoredHistory].reverse()
+          .find((message) => message.role === 'assistant')?.content || `Could you describe your experience in ${s.role}?`;
+
+        setHistory(restoredHistory);
+        setCurrentQNum(Number(s.currentQuestionNumber) || 1);
+        setFirstQuestion(restoredQuestion);
         setSession({
           id: s._id,
           role: s.role,
           difficulty: s.difficulty,
-          level: s.difficulty === 'hard' ? 'Senior' : s.difficulty === 'medium' ? 'Junior' : 'Fresher',
-          totalQuestions: s.count || 5,
+          level: s.level || (s.difficulty === 'hard' ? 'Senior' : s.difficulty === 'medium' ? 'Junior' : 'Fresher'),
+          totalQuestions,
         });
-        if (!firstQuestion) {
-          setFirstQuestion(`Could you describe your background and architectural experience in ${s.role}?`);
-        }
       })
       .catch(() => {
         if (!mounted) return;
@@ -231,10 +250,10 @@ const LiveInterview = () => {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(() => {
         setMicAllowed(true);
-        setCurrentQ(INTRO_PROMPT);
-        setHistory([{ role: 'assistant', content: INTRO_PROMPT }]);
+        setCurrentQ(firstQuestion);
+        setHistory((history) => history.length ? history : [{ role: 'assistant', content: firstQuestion }]);
         setUiState(STATES.AI_SPEAK);
-        speakText(INTRO_PROMPT, () => {
+        speakText(firstQuestion, () => {
           setUiState(STATES.LISTENING);
           startListening();
         });
@@ -242,9 +261,9 @@ const LiveInterview = () => {
       .catch(() => {
         toast.error('Microphone access denied. Please allow mic in browser settings.');
         setMicAllowed(false);
-        setCurrentQ(INTRO_PROMPT);
-        setHistory([{ role: 'assistant', content: INTRO_PROMPT }]);
-        setUiState(STATES.AI_SPEAK);
+        setCurrentQ(firstQuestion);
+        setHistory((history) => history.length ? history : [{ role: 'assistant', content: firstQuestion }]);
+        setUiState(STATES.LISTENING);
       });
 
     return () => {
@@ -282,7 +301,7 @@ const LiveInterview = () => {
 
       if (!data.success) throw new Error(data.message);
 
-      const newHistory = [
+      const newHistory = data.conversationHistory || [
         ...updatedHistory,
         ...(data.nextQuestion ? [{ role: 'assistant', content: data.nextQuestion }] : []),
       ];
@@ -295,7 +314,7 @@ const LiveInterview = () => {
         if (data.isLast || !data.nextQuestion) {
           finishInterviewRef.current?.(newHistory);
         } else {
-          const nextNum = currentQNum + 1;
+          const nextNum = Number(data.currentQuestionNumber) || currentQNum + 1;
           setCurrentQNum(nextNum);
           setCurrentQ(data.nextQuestion);
           setTranscript('');
@@ -307,6 +326,9 @@ const LiveInterview = () => {
         }
       }, 2000);
     } catch {
+      setHistory(conversationHistory);
+      setTranscript('');
+      transcriptRef.current = '';
       toast.error('AI failed to respond. Please try again.');
       setUiState(STATES.LISTENING);
     }

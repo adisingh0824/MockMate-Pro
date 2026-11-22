@@ -398,16 +398,21 @@ const Dashboard = () => {
             ) : (
               <div className="space-y-2.5">
                 {recentSessions.map((s) => (
-                  <div
+                  <button
+                    type="button"
                     key={s._id}
-                    onClick={() => navigate('/feedback/' + s._id)}
-                    className="card p-3.5 cursor-pointer hover:border-stone-400 transition-all flex items-center gap-3.5 border-stone-200"
+                    onClick={() => navigate(s.completedAt
+                      ? `/feedback/${s._id}`
+                      : s.type === 'interview'
+                        ? `/live-interview/${s._id}`
+                        : `/session/${s._id}`)}
+                    className="card w-full text-left p-3.5 cursor-pointer hover:border-stone-400 transition-all flex items-center gap-3.5 border-stone-200"
                   >
                     <div
-                      className={`w-11 h-11 rounded-lg border flex flex-col items-center justify-center font-bold flex-shrink-0 ${scoreBadge(s.overallScore || 0)}`}
+                      className={`w-11 h-11 rounded-lg border flex flex-col items-center justify-center font-bold flex-shrink-0 ${s.completedAt ? scoreBadge(s.overallScore || 0) : 'bg-stone-100 text-stone-600 border-stone-200'}`}
                     >
                       <span className="text-sm leading-none font-bold">
-                        {s.overallScore || 0}
+                        {s.completedAt ? (s.overallScore || 0) : '…'}
                       </span>
                       <span className="text-[10px] opacity-75 font-normal">/10</span>
                     </div>
@@ -424,7 +429,7 @@ const Dashboard = () => {
                           {s.type || 'practice'}
                         </span>
                         <span className="text-[11px] text-stone-400 ml-1">
-                          {fmtDate(s.completedAt || s.createdAt)}
+                          {s.completedAt ? fmtDate(s.completedAt) : `In progress · ${fmtDate(s.createdAt)}`}
                         </span>
                       </div>
                     </div>
@@ -432,7 +437,7 @@ const Dashboard = () => {
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-stone-400 flex-shrink-0">
                       <polyline points="9 18 15 12 9 6" />
                     </svg>
-                  </div>
+                  </button>
                 ))}
 
                 {history.length > 6 && (
