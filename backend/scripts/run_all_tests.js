@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const { initFirebase, getDb, getFirebaseAuth } = require('../config/firebase');
+const Transaction = require('../models/Transaction');
 require('../utils/sendEmail').sendOtpEmail = async (_email, _name, otp) => ({
   success: true,
   simulated: true,
@@ -60,7 +61,7 @@ const runSuite = async () => {
   console.log('🧪 Starting MockMate Pro Test Suite...\n');
   let passed = 0;
   let failed = 0;
-  const cleanup = { sessionIds: [], testEmail: null, testUserId: null };
+  const cleanup = { sessionIds: [], transactionIds: [], testEmail: null, testUserId: null };
 
   const assert = (condition, title, details = '') => {
     if (condition) {
@@ -106,7 +107,13 @@ const runSuite = async () => {
       password: 'password12345',
     });
     assert(regRes.status === 200 && regRes.data?.success, 'POST /api/auth/register');
-    const devOtp = regRes.data?.devOtp;
+    let devOtp = regRes.data?.devOtp;
+
+    const resendOtpRes = await makeRequest(port, { path: '/api/auth/resend-otp', method: 'POST' }, {
+      email: testRegEmail,
+    });
+    assert(resendOtpRes.status === 200 && Boolean(resendOtpRes.data?.devOtp), 'POST /api/auth/resend-otp');
+    if (resendOtpRes.data?.devOtp) devOtp = resendOtpRes.data.devOtp;
 
     if (devOtp) {
       const verifyRes = await makeRequest(port, { path: '/api/auth/verify-otp', method: 'POST' }, {
@@ -117,10 +124,34 @@ const runSuite = async () => {
       assert(typeof verifyRes.data?.token === 'string' && verifyRes.data.token.length > 20, 'POST /api/auth/verify-otp (returns JWT for auto-login)');
       cleanup.testUserId = verifyRes.data?.user?.id;
     }
-    const sessionToken = devOtp ? (await makeRequest(port, { path: '/api/auth/login', method: 'POST' }, {
+
+    const forgotPasswordRes = await makeRequest(port, { path: '/api/auth/forgot-password', method: 'POST' }, {
+      email: testRegEmail,
+    });
+    assert(forgotPasswordRes.status === 200 && Boolean(forgotPasswordRes.data?.devOtp), 'POST /api/auth/forgot-password');
+
+    const updatedTestPassword = 'reset-password-test-12345';
+    const resetPasswordRes = await makeRequest(port, { path: '/api/auth/reset-password', method: 'POST' }, {
+      email: testRegEmail,
+      otp: forgotPasswordRes.data?.devOtp,
+      password: updatedTestPassword,
+    });
+    assert(resetPasswordRes.status === 200, 'POST /api/auth/reset-password (updates account password)');
+
+    const oldPasswordLogin = await makeRequest(port, { path: '/api/auth/login', method: 'POST' }, {
       email: testRegEmail,
       password: 'password12345',
-    })).data?.token : token;
+    });
+    assert(oldPasswordLogin.status === 401, 'POST /api/auth/login (rejects password replaced by reset)');
+
+    const newPasswordLogin = devOtp ? await makeRequest(port, { path: '/api/auth/login', method: 'POST' }, {
+      email: testRegEmail,
+      password: updatedTestPassword,
+    }) : null;
+    if (devOtp) {
+      assert(newPasswordLogin.status === 200 && Boolean(newPasswordLogin.data?.token), 'POST /api/auth/login (accepts reset password)');
+    }
+    const sessionToken = newPasswordLogin?.data?.token || token;
 
     // 6. Auth: Get and update the disposable profile, never the demo profile.
     const meRes = await makeRequest(port, {
@@ -247,6 +278,31 @@ const runSuite = async () => {
     });
     assert(txRes.status === 200 && Array.isArray(txRes.data?.transactions), 'GET /api/payments/transaction-history');
 
+    const pendingTransaction = await Transaction.create({
+      user: cleanup.testUserId,
+      planId: 'pro',
+      planName: 'Pro',
+      planPrice: '₹599',
+      planPeriod: '/month',
+      razorpayOrderId: `test_order_${Date.now()}`,
+      amount: 59900,
+      currency: 'INR',
+      status: 'pending',
+    });
+    cleanup.transactionIds.push(pendingTransaction._id);
+    const cancelTransactionRes = await makeRequest(port, {
+      path: `/api/payments/cancel-transaction/${pendingTransaction._id}`,
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    assert(cancelTransactionRes.status === 200 && cancelTransactionRes.data?.transaction?.status === 'cancelled', 'POST /api/payments/cancel-transaction/:id');
+    const cancelAgainRes = await makeRequest(port, {
+      path: `/api/payments/cancel-transaction/${pendingTransaction._id}`,
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    assert(cancelAgainRes.status === 400, 'POST /api/payments/cancel-transaction/:id (rejects repeated cancellation)');
+
     // 17. Live Interview Simulation Flow
     console.log('\n📌 Testing Live Interview Simulation Flow');
     const startInterviewRes = await makeRequest(port, {
@@ -307,6 +363,7 @@ const runSuite = async () => {
       const db = getDb();
       const batch = db.batch();
       cleanup.sessionIds.forEach((id) => batch.delete(db.collection('sessions').doc(id)));
+      cleanup.transactionIds.forEach((id) => batch.delete(db.collection('transactions').doc(id)));
 
       if (cleanup.testEmail) {
         const [userDocs, otpDocs] = await Promise.all([
